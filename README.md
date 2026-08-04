@@ -139,10 +139,11 @@ Build and push the same Cog image, then override the container command:
 python -u /src/rp_handler.py
 ```
 
-The handler accepts `first_frame_url` and `last_frame_url` HTTPS inputs in place
-of Cog file inputs, rejects private/reserved network targets, caps each image at
-32MiB, and returns a bounded base64 media output compatible with app.nz's Cog
-serverless shim. Set minimum workers to zero. A persistent network volume avoids
+The handler accepts the Cog-compatible `first_frame` and `last_frame` HTTPS
+inputs as well as the explicit `first_frame_url` and `last_frame_url` aliases.
+It rejects private/reserved network targets, caps each image at 32MiB, and
+returns a bounded base64 media output compatible with app.nz's Cog serverless
+shim. Set minimum workers to zero. A persistent network volume avoids
 re-downloading the 42.5GB model on cold workers.
 
 ### Authenticated acceleration sweeps

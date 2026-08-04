@@ -14,6 +14,7 @@ from pathlib import Path
 import runpod
 
 from h3_runtime import H3Runtime
+from h3_serverless import frame_url
 from h3_tuning import authorize_tuning
 
 _runtime = None
@@ -61,8 +62,11 @@ def handler(event):
     first = last = None
     try:
         cache = authorize_tuning(values.get("_tuning"), values.get("_tuning_signature"))
-        first = _download_image(values.get("first_frame_url"))
-        last = _download_image(values.get("last_frame_url"))
+        # The public Cog schema uses first_frame/last_frame. Keep the explicit
+        # *_url aliases for direct RunPod callers while making both runtimes
+        # accept the same JSON request shape.
+        first = _download_image(frame_url(values, "first_frame"))
+        last = _download_image(frame_url(values, "last_frame"))
         output = _get_runtime().generate(
             prompt=values.get("prompt", ""),
             first_frame=first,
