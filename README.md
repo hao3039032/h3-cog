@@ -208,9 +208,9 @@ record. The suite remains prompt-only until the deployer accepts the weight
 license and supplies a compliant worker region; no synthetic or untested clip
 is presented as H3 output.
 
-After that gate is cleared, put required keyframes in `gallery-keyframes/` as
-`<demo-id>-first.png` and `<demo-id>-last.png`, then render and prepare app.nz
-sidecars with:
+The five required source keyframes are included in `gallery-keyframes/` as
+`<demo-id>-first.png` and `<demo-id>-last.png`. After the license/region gate is
+cleared, render and prepare app.nz sidecars with:
 
 ```sh
 python h3_gallery.py --output ./h3-gallery-renders

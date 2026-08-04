@@ -1,7 +1,14 @@
 import json
+import struct
 from pathlib import Path
 
 from h3_workflow import aligned_frames, dimensions, validate_inputs
+
+
+def png_dimensions(path: Path) -> tuple[int, int]:
+    data = path.read_bytes()[:24]
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    return struct.unpack(">II", data[16:24])
 
 
 def test_demo_suite_covers_gallery_modes_and_formats():
@@ -14,8 +21,16 @@ def test_demo_suite_covers_gallery_modes_and_formats():
     assert len({demo["input"]["seed"] for demo in demos}) == len(demos)
     for demo in demos:
         values = demo["input"]
-        first_frame = Path("anchor.png") if "first_frame" in demo.get("requires", []) else None
-        last_frame = Path("end.png") if "last_frame" in demo.get("requires", []) else None
+        required = set(demo.get("requires", []))
+        root = Path("gallery-keyframes")
+        first_frame = root / f"{demo['id']}-first.png" if "first_frame" in required else None
+        last_frame = root / f"{demo['id']}-last.png" if "last_frame" in required else None
+        for frame in (first_frame, last_frame):
+            if frame is not None:
+                assert frame.exists()
+                width, height = png_dimensions(frame)
+                expected_width, expected_height = dimensions(values["aspect_ratio"], values["size"])
+                assert abs(width / height - expected_width / expected_height) < 0.02
         validate_inputs(
             first_frame=first_frame,
             last_frame=last_frame,
