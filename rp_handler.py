@@ -14,6 +14,7 @@ from pathlib import Path
 import runpod
 
 from h3_runtime import H3Runtime
+from h3_tuning import authorize_tuning
 
 _runtime = None
 MAX_IMAGE_BYTES = 32 * 1024 * 1024
@@ -59,6 +60,7 @@ def handler(event):
     values = event.get("input") or {}
     first = last = None
     try:
+        cache = authorize_tuning(values.get("_tuning"), values.get("_tuning_signature"))
         first = _download_image(values.get("first_frame_url"))
         last = _download_image(values.get("last_frame_url"))
         output = _get_runtime().generate(
@@ -75,10 +77,15 @@ def handler(event):
             include_audio=bool(values.get("include_audio", True)),
             output_codec=values.get("output_codec", "webm-av1"),
             encode_quality=int(values.get("encode_quality", 26)),
+            cache=cache,
+            return_metrics=True,
         )
-        data = base64.b64encode(output.read_bytes()).decode()
-        content_type = "video/webm" if output.suffix == ".webm" else "video/mp4"
-        return {"outputs": [{"filename": output.name, "data": data, "content_type": content_type}]}
+        data = base64.b64encode(output.path.read_bytes()).decode()
+        content_type = "video/webm" if output.path.suffix == ".webm" else "video/mp4"
+        return {
+            "outputs": [{"filename": output.path.name, "data": data, "content_type": content_type}],
+            "metrics": output.metrics,
+        }
     except Exception as exc:
         return {"error": str(exc)}
     finally:

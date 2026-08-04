@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -13,14 +14,22 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from h3_media import encode_video
 from h3_prompt import format_h3_prompt
+from h3_tuning import CacheTuning
 from h3_workflow import aligned_frames, build_workflow, dimensions, validate_inputs
 from weights import COMFY_ROOT, ensure_weights
 
 COMFY_URL = "http://127.0.0.1:8188"
+
+
+@dataclass(frozen=True)
+class GenerationResult:
+    path: Path
+    metrics: dict
 
 
 def _json_request(path: str, payload: dict | None = None, timeout: int = 60) -> dict:
@@ -115,7 +124,10 @@ class H3Runtime:
         include_audio: bool = True,
         output_codec: str = "webm-av1",
         encode_quality: int = 26,
-    ) -> Path:
+        cache: CacheTuning | None = None,
+        return_metrics: bool = False,
+    ) -> Path | GenerationResult:
+        total_started = time.monotonic()
         validate_inputs(first_frame=first_frame, last_frame=last_frame, loop=loop, steps=steps, seed=seed)
         frames = aligned_frames(duration)
         width, height = dimensions(aspect_ratio, size)
@@ -142,8 +154,10 @@ class H3Runtime:
             seed=seed,
             first_image_name=first_name,
             last_image_name=last_name,
+            cache=cache,
         )
         try:
+            sample_started = time.monotonic()
             queued = _json_request("/prompt", {"prompt": graph})
             prompt_id = queued.get("prompt_id")
             if not prompt_id:
@@ -160,13 +174,35 @@ class H3Runtime:
                     raise RuntimeError("ComfyUI generation failed: " + json.dumps(status.get("messages", []))[-2000:])
                 if status.get("completed"):
                     raw = self._history_output(entry)
+                    sample_seconds = time.monotonic() - sample_started
+                    encode_started = time.monotonic()
                     output = encode_video(raw, output_codec, encode_quality, include_audio)
+                    encode_seconds = time.monotonic() - encode_started
+                    total_seconds = time.monotonic() - total_started
                     print(
                         f"generated {width}x{height} frames={frames} seconds={actual_seconds:.2f} "
-                        f"steps={steps} seed={seed} loop={loop}",
+                        f"steps={steps} seed={seed} loop={loop} total_seconds={total_seconds:.3f} "
+                        f"cache={cache.profile if cache is not None else 'off'}",
                         flush=True,
                     )
-                    return output
+                    if not return_metrics:
+                        return output
+                    metrics = {
+                        "schema_version": 1,
+                        "total_seconds": round(total_seconds, 3),
+                        "generation_seconds": round(sample_seconds, 3),
+                        "encode_seconds": round(encode_seconds, 3),
+                        "output_bytes": output.stat().st_size,
+                        "output_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
+                        "width": width,
+                        "height": height,
+                        "frames": frames,
+                        "duration_seconds": round(actual_seconds, 3),
+                        "steps": steps,
+                        "seed": seed,
+                        "cache": cache.public_dict() if cache is not None else {"profile": "off"},
+                    }
+                    return GenerationResult(output, metrics)
             raise RuntimeError("generation exceeded 45 minute safety timeout")
         finally:
             for name in (first_name, last_name):

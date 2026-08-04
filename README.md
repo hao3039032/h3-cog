@@ -45,11 +45,14 @@ does not permit it.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
 
 H3's current open release is dense full-attention. MiniMax says sparse
-attention will follow. We do not apply CG-Taylor to this build: its confidence
-cache has not been validated against H3's joint audio/video latent stream or
-first/last-frame fidelity. SageAttention remains an opt-in acceleration path
-because its current Blackwell build is not distributed on the configured Python
-index; the adapter leaves room for the upstream sparse-attention release.
+attention will follow. The public path does not apply a lossy cache. Operator
+sweeps can use ComfyUI's built-in EasyCache behind a short-lived signed
+envelope, described below. We do not apply CG-Taylor or a "latent teleport"
+cache: neither has been validated as an H3-compatible node against its joint
+audio/video latent stream and first/last-frame fidelity. SageAttention remains
+an opt-in acceleration path because its current Blackwell build is not
+distributed on the configured Python index; the adapter leaves room for the
+upstream sparse-attention release.
 
 ## Inputs
 
@@ -142,6 +145,36 @@ of Cog file inputs, rejects private/reserved network targets, caps each image at
 serverless shim. Set minimum workers to zero. A persistent network volume avoids
 re-downloading the 42.5GB model on cold workers.
 
+### Authenticated acceleration sweeps
+
+EasyCache is experimental and may trade temporal, audio, or keyframe fidelity
+for speed. It is deliberately absent from Cog inputs and disabled by default.
+Only the RunPod operator can activate it by signing a bounded, expiring `_tuning`
+object with `H3_TUNING_SECRET`. The runtime never logs or returns that secret or
+the request signature.
+
+Create a fixed-seed baseline plus conservative, balanced, and aggressive
+candidates:
+
+```sh
+export H3_TUNING_SECRET="$(openssl rand -hex 32)"
+python h3_sweep.py request.json --sweep-id gallery-a01 > sweep.json
+```
+
+Set the same secret only on the private worker. Each candidate expires within
+one hour, and the server rejects unknown fields, invalid signatures, cache
+thresholds above `0.30`, and invalid cache windows. Custom settings can be
+signed with `sign_tuning` from `h3_tuning.py`; the three named profiles are the
+recommended first pass. Never expose the secret in the app.nz client or public
+Cog schema.
+
+Each RunPod response includes schema-versioned metrics for total generation and
+encode time, dimensions, frame count, exact seed, output size and SHA-256, and
+the non-secret cache configuration. Compare every cache candidate with its
+same-seed `off` baseline. Promote a profile only after visual review of motion,
+audio synchronization, first/last-frame alignment, and loop seam; no H3
+EasyCache speedup or quality claim is made before those GPU A/B results exist.
+
 ## 5090 tuning and cost
 
 The pruned INT8 transformer is 20.97GB, NVFP4 Qwen encoder 15.69GB, visual VAE
@@ -168,10 +201,27 @@ prefixes, workflow graph, GPU/CPU encoder fallback, explicit license gate, and
 resumable SHA-verified downloads. A real GPU smoke test additionally requires
 the accepted model license, 43GB of weights, a 32GB CUDA GPU, and enough host RAM.
 
-`demo_prompts.json` is the deterministic three-clip launch suite (text, image,
-and loop). It remains prompt-only until the deployer accepts the weight license
-and supplies a compliant worker region; no synthetic or untested clip is
-presented as H3 output.
+`demo_prompts.json` is the deterministic seven-clip launch suite covering text,
+image, first/last-frame, loop, vertical, square, and ultrawide output. Keep seed,
+prompt, dimensions, steps, and source keyframes attached to every gallery
+record. The suite remains prompt-only until the deployer accepts the weight
+license and supplies a compliant worker region; no synthetic or untested clip
+is presented as H3 output.
+
+After that gate is cleared, put required keyframes in `gallery-keyframes/` as
+`<demo-id>-first.png` and `<demo-id>-last.png`, then render and prepare app.nz
+sidecars with:
+
+```sh
+python h3_gallery.py --output ./h3-gallery-renders
+cd ../app-site
+bun scripts/ingest-videos.mjs --in ../h3-cog/h3-gallery-renders \
+  --out public/assets/videos --base-url /assets/videos --source minimax-h3
+```
+
+The second command runs from the app-site repository. It encodes delivery WebM
+and poster files and upserts stable `minimax-h3:<demo-id>` gallery records. Use
+`--limit 1` for the first licensed smoke render.
 
 ## Upstream references
 

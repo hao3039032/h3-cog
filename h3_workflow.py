@@ -6,6 +6,8 @@ import math
 import uuid
 from pathlib import Path
 
+from h3_tuning import CacheTuning
+
 FPS = 24
 MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
@@ -72,6 +74,7 @@ def build_workflow(
     seed: int,
     first_image_name: str | None = None,
     last_image_name: str | None = None,
+    cache: CacheTuning | None = None,
 ) -> dict[str, dict]:
     graph: dict[str, dict] = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": MODEL, "weight_dtype": "default"}},
@@ -111,6 +114,20 @@ def build_workflow(
         },
     }
     next_id = 15
+    if cache is not None:
+        graph[str(next_id)] = {
+            "class_type": "EasyCache",
+            "inputs": {
+                "model": ["1", 0],
+                "reuse_threshold": cache.reuse_threshold,
+                "start_percent": cache.start_percent,
+                "end_percent": cache.end_percent,
+                "verbose": cache.verbose,
+            },
+        }
+        graph["6"]["inputs"]["model"] = [str(next_id), 0]
+        graph["9"]["inputs"]["model"] = [str(next_id), 0]
+        next_id += 1
     if first_image_name:
         graph[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": first_image_name}}
         graph["5"]["inputs"]["first_frame"] = [str(next_id), 0]

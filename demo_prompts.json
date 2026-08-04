@@ -27,5 +27,43 @@
       "aspect_ratio": "1:1", "size": "balanced", "duration": 5, "steps": 20,
       "seed": 31003, "loop": true, "include_audio": true, "output_codec": "webm-av1"
     }
+  },
+  {
+    "id": "desert-portal-flf",
+    "mode": "first-last-frame",
+    "requires": ["first_frame", "last_frame"],
+    "input": {
+      "prompt": "One uninterrupted dolly-in across wind-rippled desert sand as an ancient stone arch awakens from the supplied opening frame and resolves precisely into the supplied final frame; blue energy traces the carvings, cloth and dust obey the wind, deep harmonic drone and granular sand, preserve the arch geometry, no cut.",
+      "aspect_ratio": "16:9", "size": "balanced", "duration": 6, "steps": 20,
+      "seed": 31004, "include_audio": true, "output_codec": "webm-av1"
+    }
+  },
+  {
+    "id": "ramen-counter-vertical",
+    "mode": "text-to-video",
+    "input": {
+      "prompt": "Vertical cinematic close shot inside a tiny late-night ramen bar: the chef places a steaming bowl on the counter, scallions settle and broth shimmers while the camera gently pushes forward; warm practical lights, natural hand motion, soft kitchen clatter and rain outside, one continuous take, no text.",
+      "aspect_ratio": "9:16", "size": "balanced", "duration": 5, "steps": 20,
+      "seed": 31005, "include_audio": true, "output_codec": "webm-av1"
+    }
+  },
+  {
+    "id": "paper-city-square",
+    "mode": "image-to-video",
+    "requires": ["first_frame"],
+    "input": {
+      "prompt": "Locked square composition: the supplied paper city wakes at dawn, tiny folded cars move through two intersections and paper trees sway subtly while every building keeps its original silhouette; tactile stop-motion cadence, paper rustle and distant bicycle bell, no camera cut.",
+      "aspect_ratio": "1:1", "size": "balanced", "duration": 5, "steps": 20,
+      "seed": 31006, "include_audio": true, "output_codec": "webm-av1"
+    }
+  },
+  {
+    "id": "aurora-train-ultrawide",
+    "mode": "text-to-video",
+    "input": {
+      "prompt": "Ultra-wide night landscape in one continuous lateral tracking shot: a silver train crosses a snowy viaduct beneath a moving green aurora, warm windows reveal subtle passenger silhouettes, powder trails behind the wheels, restrained cinematic contrast, rail rhythm and cold wind with no music, no cut.",
+      "aspect_ratio": "21:9", "size": "balanced", "duration": 5, "steps": 20,
+      "seed": 31007, "include_audio": true, "output_codec": "webm-av1"
+    }
   }
 ]
