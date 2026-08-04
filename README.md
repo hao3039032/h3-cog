@@ -37,7 +37,8 @@ does not permit it.
 - Native H3 aspect ratios and a 768px short-edge quality tier.
 - Official `res_multistep` sampler and 20-step quality default; 12–16 steps and
   reduced pixel area are exposed for previews.
-- SageAttention when installed, PyTorch attention fallback, ComfyUI low-VRAM
+- optional SageAttention when supplied by the image operator, with PyTorch
+  attention fallback and ComfyUI low-VRAM support
   offloading, and persistent model processes for 32GB RTX 5090 workers.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
   fallback. Native audio is remuxed as Opus or AAC.
@@ -46,8 +47,9 @@ does not permit it.
 H3's current open release is dense full-attention. MiniMax says sparse
 attention will follow. We do not apply CG-Taylor to this build: its confidence
 cache has not been validated against H3's joint audio/video latent stream or
-first/last-frame fidelity. SageAttention is the safe measured acceleration path
-today; the adapter leaves room for the upstream sparse-attention release.
+first/last-frame fidelity. SageAttention remains an opt-in acceleration path
+because its current Blackwell build is not distributed on the configured Python
+index; the adapter leaves room for the upstream sparse-attention release.
 
 ## Inputs
 
