@@ -1,0 +1,3 @@
+# Container dependencies are pinned inline in cog.yaml because build.run does
+# not have access to project files and Cog 0.21's generated Python requires a
+# PEP 668 override. This file is retained as the current Cog convention marker.
