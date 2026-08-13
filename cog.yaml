@@ -22,4 +22,5 @@ build:
     - "python -m pip install --break-system-packages --extra-index-url https://download.pytorch.org/whl/cu128 torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 requests==2.32.5 runpod==1.7.13 boto3==1.40.12"
     - "git clone https://github.com/Comfy-Org/ComfyUI.git /opt/ComfyUI && git -C /opt/ComfyUI checkout 9a9fdb10ed144ce760d9682cb247526ea23cc525"
     - "python -m pip install --break-system-packages --no-cache-dir -r /opt/ComfyUI/requirements.txt --extra-index-url https://download.pytorch.org/whl/cu128"
+    - "TORCH_CUDA_ARCH_LIST=8.9 MAX_JOBS=4 python -m pip install --break-system-packages --no-cache-dir --no-build-isolation git+https://github.com/thu-ml/SageAttention.git@eb615cf6cf4d221338033340ee2de1c37fbdba4a"
 run: "predict.py:Runner"

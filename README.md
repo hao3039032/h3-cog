@@ -71,10 +71,10 @@ The default native 9:16 canvas is 768×1344 and `preview` is 480×864, while
 preserving 32-pixel alignment. A requested 5 seconds is 124
 frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
 
-On a 48GB L40S, ComfyUI disables DynamicVRAM, uses normal model-level CPU
-offload between stages, and keeps the active model intact in VRAM. Set
-`H3_LOWVRAM=1` only as an emergency fallback; `H3_RESERVE_VRAM_GB` defaults to
-`1.0`.
+On a 48GB L40S, ComfyUI uses its default DynamicVRAM path, which measured about
+7% faster than estimate-based loading on the same 480x864, 362-frame workload.
+Set `H3_LOWVRAM=1` only as an emergency fallback; `H3_RESERVE_VRAM_GB` defaults
+to `1.0`.
 
 ## Local Cog usage
 

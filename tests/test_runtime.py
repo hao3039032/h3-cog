@@ -55,12 +55,12 @@ def test_comfy_error_reports_exception_without_dumping_tensor_inputs():
     assert "tensor" not in message
 
 
-def test_comfy_defaults_to_static_normal_vram_with_emergency_lowvram_switch(monkeypatch):
+def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(monkeypatch):
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
     monkeypatch.delenv("H3_RESERVE_VRAM_GB", raising=False)
     command = h3_runtime._comfy_command()
     assert "--lowvram" not in command
-    assert "--disable-dynamic-vram" in command
+    assert "--disable-dynamic-vram" not in command
     assert command[command.index("--reserve-vram") + 1] == "1.0"
 
     monkeypatch.setenv("H3_LOWVRAM", "1")

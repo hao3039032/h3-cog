@@ -57,7 +57,7 @@ def _comfy_error(status: dict) -> str:
 
 
 def _comfy_command() -> list[str]:
-    """Keep active models intact; retain model-level offload between H3 stages."""
+    """Use Comfy's measured-faster DynamicVRAM path with an emergency fallback."""
     command = [
         sys.executable,
         str(COMFY_ROOT / "main.py"),
@@ -69,8 +69,6 @@ def _comfy_command() -> list[str]:
     ]
     if os.getenv("H3_LOWVRAM", "").lower() in {"1", "true", "yes"}:
         command.append("--lowvram")
-    else:
-        command.append("--disable-dynamic-vram")
     return command
 
 
@@ -98,7 +96,7 @@ class H3Runtime:
                 raise RuntimeError(f"ComfyUI exited during startup with code {process.returncode}")
             try:
                 _json_request("/system_stats", timeout=3)
-                vram_mode = "low" if "--lowvram" in command else "normal-static"
+                vram_mode = "low" if "--lowvram" in command else "normal-dynamic"
                 print(
                     f"MiniMax H3 ready: attention={attention} vram_mode={vram_mode} "
                     f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]} comfy_pid={process.pid}",
@@ -169,8 +167,8 @@ class H3Runtime:
         command = _comfy_command()
         print(
             "H3 execution config: "
-            f"vram_mode={'low' if '--lowvram' in command else 'normal-static'} "
-            f"dynamic_vram={'off' if '--disable-dynamic-vram' in command else 'on'} "
+            f"vram_mode={'low' if '--lowvram' in command else 'normal-dynamic'} "
+            "dynamic_vram=on "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
             flush=True,
         )
