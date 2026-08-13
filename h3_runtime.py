@@ -56,6 +56,22 @@ def _comfy_error(status: dict) -> str:
     return "ComfyUI generation failed without an execution_error message"
 
 
+def _comfy_command() -> list[str]:
+    """Use normal model-level offload by default; keep an emergency low-VRAM switch."""
+    command = [
+        sys.executable,
+        str(COMFY_ROOT / "main.py"),
+        "--listen", "127.0.0.1",
+        "--port", "8188",
+        "--disable-auto-launch",
+        "--disable-metadata",
+        "--reserve-vram", os.getenv("H3_RESERVE_VRAM_GB", "1.0"),
+    ]
+    if os.getenv("H3_LOWVRAM", "").lower() in {"1", "true", "yes"}:
+        command.append("--lowvram")
+    return command
+
+
 class H3Runtime:
     def __init__(self) -> None:
         ensure_weights()
@@ -63,16 +79,7 @@ class H3Runtime:
         self.process = self._start_comfy()
 
     def _start_comfy(self) -> subprocess.Popen:
-        command = [
-            sys.executable,
-            str(COMFY_ROOT / "main.py"),
-            "--listen", "127.0.0.1",
-            "--port", "8188",
-            "--disable-auto-launch",
-            "--disable-metadata",
-            "--lowvram",
-            "--reserve-vram", os.getenv("H3_RESERVE_VRAM_GB", "1.5"),
-        ]
+        command = _comfy_command()
         attention = "pytorch"
         try:
             __import__("sageattention")
@@ -89,7 +96,12 @@ class H3Runtime:
                 raise RuntimeError(f"ComfyUI exited during startup with code {process.returncode}")
             try:
                 _json_request("/system_stats", timeout=3)
-                print(f"MiniMax H3 ready: attention={attention} comfy_pid={process.pid}", flush=True)
+                vram_mode = "low" if "--lowvram" in command else "normal"
+                print(
+                    f"MiniMax H3 ready: attention={attention} vram_mode={vram_mode} "
+                    f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]} comfy_pid={process.pid}",
+                    flush=True,
+                )
                 return process
             except (OSError, urllib.error.URLError, json.JSONDecodeError):
                 time.sleep(1)

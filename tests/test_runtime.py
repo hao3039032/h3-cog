@@ -53,3 +53,17 @@ def test_comfy_error_reports_exception_without_dumping_tensor_inputs():
     message = h3_runtime._comfy_error(status)
     assert message == "RuntimeError in MiniMaxH3ReferenceToVideo: CUDA out of memory"
     assert "tensor" not in message
+
+
+def test_comfy_defaults_to_normal_vram_with_emergency_lowvram_switch(monkeypatch):
+    monkeypatch.delenv("H3_LOWVRAM", raising=False)
+    monkeypatch.delenv("H3_RESERVE_VRAM_GB", raising=False)
+    command = h3_runtime._comfy_command()
+    assert "--lowvram" not in command
+    assert command[command.index("--reserve-vram") + 1] == "1.0"
+
+    monkeypatch.setenv("H3_LOWVRAM", "1")
+    monkeypatch.setenv("H3_RESERVE_VRAM_GB", "3")
+    command = h3_runtime._comfy_command()
+    assert "--lowvram" in command
+    assert command[command.index("--reserve-vram") + 1] == "3"
