@@ -46,6 +46,7 @@ def _json_request(path: str, payload: dict | None = None, timeout: int = 60) -> 
 class H3Runtime:
     def __init__(self) -> None:
         ensure_weights()
+        ensure_reference_weight()
         self.process = self._start_comfy()
 
     def _start_comfy(self) -> subprocess.Popen:
@@ -122,8 +123,6 @@ class H3Runtime:
         self,
         *,
         prompt: str,
-        first_frame: Path | None = None,
-        last_frame: Path | None = None,
         reference_images: list[Path] | None = None,
         reference_videos: list[Path] | None = None,
         reference_audios: list[Path] | None = None,
@@ -133,7 +132,6 @@ class H3Runtime:
         steps: int = 20,
         seed: int | None = None,
         structured_prompt: bool = True,
-        loop: bool = False,
         include_audio: bool = True,
         output_codec: str = "webm-av1",
         encode_quality: int = 26,
@@ -145,29 +143,23 @@ class H3Runtime:
         reference_videos = reference_videos or []
         reference_audios = reference_audios or []
         reference_mode = bool(reference_images or reference_videos or reference_audios)
-        if reference_mode and (first_frame is not None or last_frame is not None or loop):
-            raise ValueError("reference inputs cannot be combined with first_frame, last_frame, or loop")
+        if not reference_mode:
+            raise ValueError("REF2VA requires at least one reference image, video, or audio clip")
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
             raise ValueError("reference mode supports at most 9 images, 3 videos, and 3 audio clips")
-        if reference_mode:
-            ensure_reference_weight()
-        validate_inputs(first_frame=first_frame, last_frame=last_frame, loop=loop, steps=steps, seed=seed)
+        validate_inputs(steps=steps, seed=seed)
         frames = aligned_frames(duration)
         width, height = dimensions(aspect_ratio, size)
         actual_seconds = frames / 24
         if seed is None:
             seed = random.SystemRandom().randint(0, 2**63 - 1)
-        if loop:
-            last_frame = first_frame
         formatted = format_h3_prompt(
             prompt,
             actual_seconds,
-            first_frame=first_frame is not None,
-            last_frame=last_frame is not None,
+            first_frame=False,
+            last_frame=False,
             structured=structured_prompt,
         )
-        first_name = self._stage_image(first_frame, "first")
-        last_name = self._stage_image(last_frame, "last")
         reference_image_names = [self._stage_media(path, "ref-image", i) for i, path in enumerate(reference_images, 1)]
         reference_video_names = [self._stage_media(path, "ref-video", i) for i, path in enumerate(reference_videos, 1)]
         reference_audio_names = [self._stage_media(path, "ref-audio", i) for i, path in enumerate(reference_audios, 1)]
@@ -178,8 +170,6 @@ class H3Runtime:
             frames=frames,
             steps=steps,
             seed=seed,
-            first_image_name=first_name,
-            last_image_name=last_name,
             reference_image_names=reference_image_names,
             reference_video_names=reference_video_names,
             reference_audio_names=reference_audio_names,
@@ -210,7 +200,7 @@ class H3Runtime:
                     total_seconds = time.monotonic() - total_started
                     print(
                         f"generated {width}x{height} frames={frames} seconds={actual_seconds:.2f} "
-                        f"steps={steps} seed={seed} loop={loop} total_seconds={total_seconds:.3f} "
+                        f"steps={steps} seed={seed} mode=ref2va total_seconds={total_seconds:.3f} "
                         f"cache={cache.profile if cache is not None else 'off'}",
                         flush=True,
                     )
@@ -234,6 +224,6 @@ class H3Runtime:
                     return GenerationResult(output, metrics)
             raise RuntimeError("generation exceeded 45 minute safety timeout")
         finally:
-            for name in (first_name, last_name, *reference_image_names, *reference_video_names, *reference_audio_names):
+            for name in (*reference_image_names, *reference_video_names, *reference_audio_names):
                 if name:
                     (COMFY_ROOT / "input" / name).unlink(missing_ok=True)

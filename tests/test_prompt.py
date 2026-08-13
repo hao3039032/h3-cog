@@ -29,8 +29,8 @@ def test_structured_prompt_is_not_double_wrapped():
     assert format_h3_prompt(source, 5.17, first_frame=True) == source
 
 
-def test_loop_is_keyframe_conditioned():
-    with pytest.raises(ValueError, match="requires first_frame"):
-        validate_inputs(first_frame=None, last_frame=None, loop=True, steps=20, seed=1)
-    with pytest.raises(ValueError, match="cannot be combined"):
-        validate_inputs(first_frame="first.png", last_frame="last.png", loop=True, steps=20, seed=1)
+def test_sampling_inputs_are_bounded():
+    with pytest.raises(ValueError, match="steps"):
+        validate_inputs(steps=7, seed=1)
+    with pytest.raises(ValueError, match="seed"):
+        validate_inputs(steps=20, seed=-1)

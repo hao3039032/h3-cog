@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import math
 import uuid
-from pathlib import Path
 
 from h3_tuning import CacheTuning
 
 FPS = 24
-MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 REFERENCE_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
@@ -49,16 +47,9 @@ def dimensions(aspect_ratio: str, size: str) -> tuple[int, int]:
 
 def validate_inputs(
     *,
-    first_frame: Path | None,
-    last_frame: Path | None,
-    loop: bool,
     steps: int,
     seed: int | None,
 ) -> None:
-    if loop and first_frame is None:
-        raise ValueError("loop requires first_frame; H3 closes the shot onto that same keyframe")
-    if loop and last_frame is not None:
-        raise ValueError("loop cannot be combined with last_frame; omit it to reuse first_frame")
     if not 8 <= int(steps) <= 30:
         raise ValueError("steps must be between 8 and 30")
     if seed is not None and not 0 <= int(seed) <= 2**63 - 1:
@@ -73,8 +64,6 @@ def build_workflow(
     frames: int,
     steps: int,
     seed: int,
-    first_image_name: str | None = None,
-    last_image_name: str | None = None,
     reference_image_names: list[str] | None = None,
     reference_video_names: list[str] | None = None,
     reference_audio_names: list[str] | None = None,
@@ -83,21 +72,22 @@ def build_workflow(
     reference_image_names = reference_image_names or []
     reference_video_names = reference_video_names or []
     reference_audio_names = reference_audio_names or []
-    reference_mode = bool(reference_image_names or reference_video_names or reference_audio_names)
     graph: dict[str, dict] = {
-        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": REFERENCE_MODEL if reference_mode else MODEL, "weight_dtype": "default"}},
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": REFERENCE_MODEL, "weight_dtype": "default"}},
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": TEXT_ENCODER, "type": "minimax", "device": "default"}},
         "3": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
         "5": {
-            "class_type": "MiniMaxH3ImageToVideo",
+            "class_type": "MiniMaxH3ReferenceToVideo",
             "inputs": {
                 "clip": ["2", 0],
                 "vae": ["3", 0],
+                "audio_vae": ["4", 0],
                 "prompt": prompt,
                 "width": int(width),
                 "height": int(height),
                 "length": int(frames),
+                "ref_image_size": "match",
             },
         },
         "6": {"class_type": "BasicGuider", "inputs": {"model": ["1", 0], "conditioning": ["5", 0]}},
@@ -121,20 +111,6 @@ def build_workflow(
             },
         },
     }
-    if reference_mode:
-        graph["5"] = {
-            "class_type": "MiniMaxH3ReferenceToVideo",
-            "inputs": {
-                "clip": ["2", 0],
-                "vae": ["3", 0],
-                "audio_vae": ["4", 0],
-                "prompt": prompt,
-                "width": int(width),
-                "height": int(height),
-                "length": int(frames),
-                "ref_image_size": "match",
-            },
-        }
     next_id = 15
     if cache is not None:
         graph[str(next_id)] = {
@@ -149,14 +125,6 @@ def build_workflow(
         }
         graph["6"]["inputs"]["model"] = [str(next_id), 0]
         graph["9"]["inputs"]["model"] = [str(next_id), 0]
-        next_id += 1
-    if first_image_name:
-        graph[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": first_image_name}}
-        graph["5"]["inputs"]["first_frame"] = [str(next_id), 0]
-        next_id += 1
-    if last_image_name:
-        graph[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": last_image_name}}
-        graph["5"]["inputs"]["last_frame"] = [str(next_id), 0]
         next_id += 1
     for index, name in enumerate(reference_image_names, 1):
         node_id = str(next_id)

@@ -1,7 +1,7 @@
 [project]
 name = "h3-cog"
 version = "0.1.0"
-description = "MiniMax H3 text/image/first-last-frame video Cog for app.nz"
+description = "MiniMax H3 REF2VA video Cog for app.nz"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = []

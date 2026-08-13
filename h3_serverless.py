@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 
-def frame_url(values: dict, name: str) -> str | None:
-    """Prefer the public Cog field while retaining the direct-RunPod alias."""
-    return values.get(name) or values.get(f"{name}_url")
+def media_urls(values: dict, name: str) -> list[str]:
+    """Normalize Cog list inputs and direct-RunPod ``*_urls`` aliases."""
+    urls = values.get(name)
+    if urls is None:
+        urls = values.get(f"{name}_urls", [])
+    if isinstance(urls, str):
+        urls = [urls]
+    if not isinstance(urls, list) or not all(isinstance(url, str) for url in urls):
+        raise ValueError(f"{name} must be a list of HTTPS URLs")
+    return urls

@@ -14,11 +14,11 @@ from pathlib import Path
 import runpod
 
 from h3_runtime import H3Runtime
-from h3_serverless import frame_url
+from h3_serverless import media_urls
 from h3_tuning import authorize_tuning
 
 _runtime = None
-MAX_IMAGE_BYTES = 32 * 1024 * 1024
+MAX_MEDIA_BYTES = 512 * 1024 * 1024
 
 
 def _get_runtime() -> H3Runtime:
@@ -38,18 +38,16 @@ def _public_https(url: str) -> None:
             raise ValueError("image URL resolves to a private or reserved address")
 
 
-def _download_image(url: str | None) -> Path | None:
-    if not url:
-        return None
+def _download_media(url: str) -> Path:
     _public_https(url)
     request = urllib.request.Request(url, headers={"User-Agent": "appnz-h3-cog/0.1"})
     with urllib.request.urlopen(request, timeout=120) as response:
         length = int(response.headers.get("Content-Length", "0") or 0)
-        if length > MAX_IMAGE_BYTES:
-            raise ValueError("image exceeds 32 MiB")
-        data = response.read(MAX_IMAGE_BYTES + 1)
-    if len(data) > MAX_IMAGE_BYTES:
-        raise ValueError("image exceeds 32 MiB")
+        if length > MAX_MEDIA_BYTES:
+            raise ValueError("reference media exceeds 512 MiB")
+        data = response.read(MAX_MEDIA_BYTES + 1)
+    if len(data) > MAX_MEDIA_BYTES:
+        raise ValueError("reference media exceeds 512 MiB")
     suffix = Path(urllib.parse.urlparse(url).path).suffix or ".png"
     fd, filename = tempfile.mkstemp(prefix="h3-input-", suffix=suffix)
     with os.fdopen(fd, "wb") as handle:
@@ -59,25 +57,24 @@ def _download_image(url: str | None) -> Path | None:
 
 def handler(event):
     values = event.get("input") or {}
-    first = last = None
+    downloaded: list[Path] = []
     try:
         cache = authorize_tuning(values.get("_tuning"), values.get("_tuning_signature"))
-        # The public Cog schema uses first_frame/last_frame. Keep the explicit
-        # *_url aliases for direct RunPod callers while making both runtimes
-        # accept the same JSON request shape.
-        first = _download_image(frame_url(values, "first_frame"))
-        last = _download_image(frame_url(values, "last_frame"))
+        reference_images = [_download_media(url) for url in media_urls(values, "reference_images")]
+        reference_videos = [_download_media(url) for url in media_urls(values, "reference_videos")]
+        reference_audios = [_download_media(url) for url in media_urls(values, "reference_audios")]
+        downloaded.extend(reference_images + reference_videos + reference_audios)
         output = _get_runtime().generate(
             prompt=values.get("prompt", ""),
-            first_frame=first,
-            last_frame=last,
+            reference_images=reference_images,
+            reference_videos=reference_videos,
+            reference_audios=reference_audios,
             aspect_ratio=values.get("aspect_ratio", "16:9"),
-            size=values.get("size", "balanced"),
+            size=values.get("size", "preview"),
             duration=float(values.get("duration", 5)),
             steps=int(values.get("steps", 20)),
             seed=values.get("seed"),
             structured_prompt=bool(values.get("structured_prompt", True)),
-            loop=bool(values.get("loop", False)),
             include_audio=bool(values.get("include_audio", True)),
             output_codec=values.get("output_codec", "webm-av1"),
             encode_quality=int(values.get("encode_quality", 26)),
@@ -93,9 +90,8 @@ def handler(event):
     except Exception as exc:
         return {"error": str(exc)}
     finally:
-        for path in (first, last):
-            if path:
-                path.unlink(missing_ok=True)
+        for path in downloaded:
+            path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

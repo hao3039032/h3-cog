@@ -1,10 +1,10 @@
 # MiniMax H3 Cog for app.nz
 
-MiniMax H3 text-to-video, image-to-video, reference-to-video, first/last-frame
-video, and keyframe-conditioned seamless loops in one portable [Cog](https://github.com/replicate/cog).
-It uses MiniMax's open-weight H3 Base FL2VA model through ComfyUI's native H3
-nodes, keeps the model warm between predictions, pulls four verified files from
-the app.nz R2 mirror, and encodes web-ready AV1 on the GPU.
+MiniMax H3 reference-to-video in a portable [Cog](https://github.com/replicate/cog).
+This deployment intentionally uses only REF2VA: one or more reference images,
+videos, or audio clips are required. The production image bakes the transformer,
+text encoder, and both VAEs so a scale-to-zero cold start does not download
+weights, fetch a manifest, or hash tens of gigabytes.
 
 [![Deploy H3 on app.nz](https://app.nz/deploy-button.svg)](https://app.nz/deploy?template=minimax-h3)
 
@@ -28,14 +28,8 @@ does not permit it.
 
 ## What is included
 
-- T2VA: prompt to 24fps video with native synchronized 32kHz stereo audio.
-- I2VA/L2VA: optional first frame or optional last frame.
-- FL2VA: optional first and last frames, with MiniMax's documented alignment
-  prompt injected for ordinary prompts.
 - REF2VA: up to 9 reference images, 3 reference videos (including their audio),
   and 3 standalone audio clips for identity, style, motion, camera, or voice.
-- Loop: reuses the supplied first frame as the last-frame condition. This is a
-  generated content loop, not a cheap duplicated/reversed post-process.
 - Native H3 aspect ratios and a 768px short-edge quality tier.
 - Official `res_multistep` sampler and 20-step quality default; 12–16 steps and
   reduced pixel area are exposed for previews.
@@ -61,7 +55,6 @@ upstream sparse-attention release.
 | Input | Default | Notes |
 | --- | --- | --- |
 | `prompt` | required | Scene, motion, camera, dialogue, SFX, and music |
-| `first_frame` / `last_frame` | empty | Zero, one, or two H3 keyframes |
 | `reference_images` | empty | Up to 9 R2V images; prompt tags are `<Picture 1>`, etc. |
 | `reference_videos` | empty | Up to 3 R2V videos; exposes `<Video n>` and its `<Audio n>` |
 | `reference_audios` | empty | Up to 3 standalone R2V audio clips |
@@ -70,7 +63,6 @@ upstream sparse-attention release.
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `20` | 20 official; 12–16 preview; allowed 8–30 |
 | `structured_prompt` | `true` | Applies the public MiniMax audiovisual prompt shape |
-| `loop` | `false` | Requires `first_frame`; conditions the final frame on it |
 | `include_audio` | `true` | Keep or strip H3's generated stereo audio |
 | `output_codec` | `webm-av1` | `webm-av1` or `mp4-h264` |
 | `encode_quality` | `26` | Lower is higher quality and larger |
@@ -84,62 +76,34 @@ frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
 ```sh
 export MINIMAX_H3_LICENSE_ACCEPTED=1
 cog run \
-  -i prompt="A cinematic macro shot of a glass hummingbird unfolding its wings; synchronized crystalline chimes." \
-  -i size=preview -i duration=4 -i steps=12
-```
-
-Image-to-video:
-
-```sh
-cog run -i first_frame=@first.png \
-  -i prompt="A slow arc shot as the subject turns toward the sunrise." \
-  -i size=balanced -i duration=5
-```
-
-First/last-frame loop:
-
-```sh
-cog run -i first_frame=@anchor.png -i loop=true \
-  -i prompt="One continuous shot: steam curls around the cup and settles exactly into the opening composition."
-```
-
-Reference-to-video (repeat a list input to provide multiple files):
-
-```sh
-cog run \
   -i reference_images=@character.png \
   -i reference_videos=@camera-move.mp4 \
   -i reference_audios=@voice.wav \
   -i prompt="Keep <Picture 1>'s identity, follow <Video 1>'s camera move, and use <Audio 2>'s voice."
 ```
 
-Reference inputs select the separate REF2VA model and cannot be combined with
-`first_frame`, `last_frame`, or `loop` in the same request.
+At least one reference input is required. `preview` produces a 480-pixel short
+edge and is the recommended default for latency-sensitive use.
 
 The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI commit
 `9a9fdb10ed144ce760d9682cb247526ea23cc525`, the native H3 implementation tested
-by this adapter. Model weights are runtime data and are not baked into the
-container image.
+by this adapter. The published production image contains its model weights.
 
 ## R2 model mirror
 
-Only the 5090 production set is mirrored—about 42.5GB rather than every H3
-variant:
+The REF2VA-only production set contains about 42.5GB of weights:
 
 ```text
-diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
+diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
 text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
 vae/minimax_h3_video_vae_fp16.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
 ```
 
-`weights.py` downloads `https://appstatic.app.nz/models/Comfy-Org/MiniMax-H3/manifest.json`,
-resumes partial files with HTTP Range, verifies size and SHA-256, and links the
-cache into ComfyUI. `/runpod-volume/models` is preferred when present, otherwise
-`/weights`. A bad checksum never becomes a live model. The four FL2VA files are
-prepared during `setup()`. The separate 20.97GB pruned INT8 REF2VA diffusion
-weight is downloaded from the official Hugging Face repository on the first
-reference request and is then reused from the same cache.
+Development images resume downloads, verify exact size and SHA-256, and link the
+cache into ComfyUI. A production image sets `H3_BAKED_WEIGHTS_VERIFIED=1` after
+verifying its immutable layers, so startup checks sizes without network access
+or a full SHA-256 pass.
 
 To populate the mirror after accepting the upstream license:
 
@@ -160,9 +124,8 @@ Build and push the same Cog image, then override the container command:
 python -u /src/rp_handler.py
 ```
 
-The handler accepts the Cog-compatible `first_frame` and `last_frame` HTTPS
-inputs as well as the explicit `first_frame_url` and `last_frame_url` aliases.
-It rejects private/reserved network targets, caps each image at 32MiB, and
+The handler accepts Cog-compatible reference URL lists and `reference_*_urls`
+aliases. It rejects private/reserved network targets, caps each file at 512MiB, and
 returns a bounded base64 media output compatible with app.nz's Cog serverless
 shim. Set minimum workers to zero. A persistent network volume avoids
 re-downloading the 42.5GB model on cold workers.

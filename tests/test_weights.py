@@ -60,6 +60,7 @@ def test_manifest_falls_back_to_verified_huggingface_metadata(monkeypatch):
 
     monkeypatch.setattr(weights.urllib.request, "urlopen", unavailable)
     manifest = weights._manifest()
-    entry = manifest["diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"]
-    assert entry["size"] == 20_970_379_616
+    assert "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" not in manifest
+    entry = manifest["text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]
+    assert entry["size"] == 15_687_142_551
     assert entry["url"].startswith("https://huggingface.co/Comfy-Org/MiniMax-H3/")

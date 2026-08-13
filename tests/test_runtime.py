@@ -10,7 +10,7 @@ def test_generation_metrics_cover_output_identity_and_lossless_default(tmp_path,
     encoded = tmp_path / "result.webm"
     encoded.write_bytes(b"encoded-video")
     runtime = object.__new__(H3Runtime)
-    monkeypatch.setattr(runtime, "_stage_image", lambda path, label: None)
+    monkeypatch.setattr(runtime, "_stage_media", lambda path, label, index: "identity.png")
     monkeypatch.setattr(runtime, "_history_output", lambda entry: raw)
     monkeypatch.setattr(h3_runtime.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(h3_runtime, "encode_video", lambda *args: encoded)
@@ -21,7 +21,10 @@ def test_generation_metrics_cover_output_identity_and_lossless_default(tmp_path,
         return {"job-1": {"status": {"completed": True}, "outputs": {}}}
 
     monkeypatch.setattr(h3_runtime, "_json_request", fake_json_request)
-    result = runtime.generate(prompt="test", duration=4, seed=42, return_metrics=True)
+    result = runtime.generate(
+        prompt="test", reference_images=[tmp_path / "identity.png"],
+        duration=4, seed=42, return_metrics=True,
+    )
     assert isinstance(result, GenerationResult)
     assert result.path == encoded
     assert result.metrics["seed"] == 42
