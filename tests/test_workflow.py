@@ -48,6 +48,8 @@ def test_reference_workflow_uses_ref2va_and_native_media_loaders():
     assert graph["15"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
     assert graph["16"] == {"class_type": "LoadVideo", "inputs": {"file": "motion.mp4"}}
     assert graph["17"] == {"class_type": "GetVideoComponents", "inputs": {"video": ["16", 0]}}
-    assert graph["5"]["inputs"]["ref_video_1"] == ["17", 0]
-    assert graph["5"]["inputs"]["ref_video_audio_1"] == ["17", 1]
+    assert graph["5"]["inputs"]["ref_images.ref_image_1"] == ["15", 0]
+    assert graph["5"]["inputs"]["ref_videos.ref_video_1"] == ["17", 0]
+    assert graph["5"]["inputs"]["ref_video_audios.ref_video_audio_1"] == ["17", 1]
     assert graph["18"] == {"class_type": "LoadAudio", "inputs": {"audio": "voice.wav"}}
+    assert graph["5"]["inputs"]["ref_audios.ref_audio_1"] == ["18", 0]

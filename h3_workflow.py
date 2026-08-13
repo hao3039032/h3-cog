@@ -134,19 +134,19 @@ def build_workflow(
     for index, name in enumerate(reference_image_names, 1):
         node_id = str(next_id)
         graph[node_id] = {"class_type": "LoadImage", "inputs": {"image": name}}
-        graph["5"]["inputs"][f"ref_image_{index}"] = [node_id, 0]
+        graph["5"]["inputs"][f"ref_images.ref_image_{index}"] = [node_id, 0]
         next_id += 1
     for index, name in enumerate(reference_video_names, 1):
         load_id = str(next_id)
         components_id = str(next_id + 1)
         graph[load_id] = {"class_type": "LoadVideo", "inputs": {"file": name}}
         graph[components_id] = {"class_type": "GetVideoComponents", "inputs": {"video": [load_id, 0]}}
-        graph["5"]["inputs"][f"ref_video_{index}"] = [components_id, 0]
-        graph["5"]["inputs"][f"ref_video_audio_{index}"] = [components_id, 1]
+        graph["5"]["inputs"][f"ref_videos.ref_video_{index}"] = [components_id, 0]
+        graph["5"]["inputs"][f"ref_video_audios.ref_video_audio_{index}"] = [components_id, 1]
         next_id += 2
     for index, name in enumerate(reference_audio_names, 1):
         node_id = str(next_id)
         graph[node_id] = {"class_type": "LoadAudio", "inputs": {"audio": name}}
-        graph["5"]["inputs"][f"ref_audio_{index}"] = [node_id, 0]
+        graph["5"]["inputs"][f"ref_audios.ref_audio_{index}"] = [node_id, 0]
         next_id += 1
     return graph

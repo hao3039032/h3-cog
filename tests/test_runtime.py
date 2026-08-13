@@ -41,3 +41,15 @@ def test_ref2va_product_defaults_are_vertical_preview_mp4():
     assert defaults["size"].default == "preview"
     assert defaults["structured_prompt"].default is False
     assert defaults["output_codec"].default == "mp4-h264"
+
+
+def test_comfy_error_reports_exception_without_dumping_tensor_inputs():
+    status = {"messages": [["execution_error", {
+        "node_type": "MiniMaxH3ReferenceToVideo",
+        "exception_type": "RuntimeError",
+        "exception_message": "CUDA out of memory",
+        "current_inputs": {"ref_image_1": "tensor(very large)"},
+    }]]}
+    message = h3_runtime._comfy_error(status)
+    assert message == "RuntimeError in MiniMaxH3ReferenceToVideo: CUDA out of memory"
+    assert "tensor" not in message

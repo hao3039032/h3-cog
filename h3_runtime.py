@@ -43,6 +43,19 @@ def _json_request(path: str, payload: dict | None = None, timeout: int = 60) -> 
         return json.loads(response.read())
 
 
+def _comfy_error(status: dict) -> str:
+    """Keep the actionable Comfy exception, never multi-megabyte tensor inputs."""
+    for message in reversed(status.get("messages") or []):
+        if not isinstance(message, list) or len(message) != 2 or message[0] != "execution_error":
+            continue
+        details = message[1] if isinstance(message[1], dict) else {}
+        kind = details.get("exception_type", "Error")
+        text = details.get("exception_message", "Unknown ComfyUI execution error")
+        node = details.get("node_type") or details.get("node_id") or "unknown node"
+        return f"{kind} in {node}: {text}"
+    return "ComfyUI generation failed without an execution_error message"
+
+
 class H3Runtime:
     def __init__(self) -> None:
         ensure_weights()
@@ -190,7 +203,7 @@ class H3Runtime:
                     continue
                 status = entry.get("status") or {}
                 if status.get("status_str") == "error":
-                    raise RuntimeError("ComfyUI generation failed: " + json.dumps(status.get("messages", []))[-2000:])
+                    raise RuntimeError("ComfyUI generation failed: " + _comfy_error(status))
                 if status.get("completed"):
                     raw = self._history_output(entry)
                     sample_seconds = time.monotonic() - sample_started
