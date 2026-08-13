@@ -10,6 +10,7 @@ from h3_tuning import CacheTuning
 
 FPS = 24
 MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
+REFERENCE_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
@@ -22,7 +23,7 @@ ASPECTS = {
     "3:4": (768, 1024),
     "21:9": (1344, 576),
 }
-SCALES = {"preview": 0.58, "balanced": 0.78, "native": 1.0}
+SCALES = {"preview": 0.40, "balanced": 0.58, "native": 1.0}
 
 
 def aligned_frames(seconds: float) -> int:
@@ -74,10 +75,17 @@ def build_workflow(
     seed: int,
     first_image_name: str | None = None,
     last_image_name: str | None = None,
+    reference_image_names: list[str] | None = None,
+    reference_video_names: list[str] | None = None,
+    reference_audio_names: list[str] | None = None,
     cache: CacheTuning | None = None,
 ) -> dict[str, dict]:
+    reference_image_names = reference_image_names or []
+    reference_video_names = reference_video_names or []
+    reference_audio_names = reference_audio_names or []
+    reference_mode = bool(reference_image_names or reference_video_names or reference_audio_names)
     graph: dict[str, dict] = {
-        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": MODEL, "weight_dtype": "default"}},
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": REFERENCE_MODEL if reference_mode else MODEL, "weight_dtype": "default"}},
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": TEXT_ENCODER, "type": "minimax", "device": "default"}},
         "3": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
@@ -113,6 +121,20 @@ def build_workflow(
             },
         },
     }
+    if reference_mode:
+        graph["5"] = {
+            "class_type": "MiniMaxH3ReferenceToVideo",
+            "inputs": {
+                "clip": ["2", 0],
+                "vae": ["3", 0],
+                "audio_vae": ["4", 0],
+                "prompt": prompt,
+                "width": int(width),
+                "height": int(height),
+                "length": int(frames),
+                "ref_image_size": "match",
+            },
+        }
     next_id = 15
     if cache is not None:
         graph[str(next_id)] = {
@@ -135,4 +157,23 @@ def build_workflow(
     if last_image_name:
         graph[str(next_id)] = {"class_type": "LoadImage", "inputs": {"image": last_image_name}}
         graph["5"]["inputs"]["last_frame"] = [str(next_id), 0]
+        next_id += 1
+    for index, name in enumerate(reference_image_names, 1):
+        node_id = str(next_id)
+        graph[node_id] = {"class_type": "LoadImage", "inputs": {"image": name}}
+        graph["5"]["inputs"][f"ref_image_{index}"] = [node_id, 0]
+        next_id += 1
+    for index, name in enumerate(reference_video_names, 1):
+        load_id = str(next_id)
+        components_id = str(next_id + 1)
+        graph[load_id] = {"class_type": "LoadVideo", "inputs": {"file": name}}
+        graph[components_id] = {"class_type": "GetVideoComponents", "inputs": {"video": [load_id, 0]}}
+        graph["5"]["inputs"][f"ref_video_{index}"] = [components_id, 0]
+        graph["5"]["inputs"][f"ref_video_audio_{index}"] = [components_id, 1]
+        next_id += 2
+    for index, name in enumerate(reference_audio_names, 1):
+        node_id = str(next_id)
+        graph[node_id] = {"class_type": "LoadAudio", "inputs": {"audio": name}}
+        graph["5"]["inputs"][f"ref_audio_{index}"] = [node_id, 0]
+        next_id += 1
     return graph

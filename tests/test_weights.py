@@ -46,3 +46,20 @@ def test_download_checks_size_sha_and_resumes(tmp_path):
         assert not partial.exists()
     finally:
         server.shutdown()
+
+
+def test_reference_weight_metadata_matches_huggingface_lfs():
+    assert weights.REF2VA_SIZE == 20_970_379_616
+    assert weights.REF2VA_SHA256 == "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
+    assert weights.REF2VA_URL.endswith("/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors")
+
+
+def test_manifest_falls_back_to_verified_huggingface_metadata(monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise OSError("blocked")
+
+    monkeypatch.setattr(weights.urllib.request, "urlopen", unavailable)
+    manifest = weights._manifest()
+    entry = manifest["diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"]
+    assert entry["size"] == 20_970_379_616
+    assert entry["url"].startswith("https://huggingface.co/Comfy-Org/MiniMax-H3/")

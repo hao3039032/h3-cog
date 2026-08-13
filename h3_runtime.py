@@ -21,7 +21,7 @@ from h3_media import encode_video
 from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
 from h3_workflow import aligned_frames, build_workflow, dimensions, validate_inputs
-from weights import COMFY_ROOT, ensure_weights
+from weights import COMFY_ROOT, ensure_reference_weight, ensure_weights
 
 COMFY_URL = "http://127.0.0.1:8188"
 
@@ -95,6 +95,16 @@ class H3Runtime:
         return name
 
     @staticmethod
+    def _stage_media(path: Path, label: str, index: int) -> str:
+        source = Path(path)
+        suffix = source.suffix.lower()
+        name = f"h3-{label}-{index}-{uuid.uuid4().hex}{suffix}"
+        destination = COMFY_ROOT / "input" / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        return name
+
+    @staticmethod
     def _history_output(entry: dict) -> Path:
         outputs = entry.get("outputs") or {}
         for node in outputs.values():
@@ -114,6 +124,9 @@ class H3Runtime:
         prompt: str,
         first_frame: Path | None = None,
         last_frame: Path | None = None,
+        reference_images: list[Path] | None = None,
+        reference_videos: list[Path] | None = None,
+        reference_audios: list[Path] | None = None,
         aspect_ratio: str = "16:9",
         size: str = "balanced",
         duration: float = 5.0,
@@ -128,6 +141,16 @@ class H3Runtime:
         return_metrics: bool = False,
     ) -> Path | GenerationResult:
         total_started = time.monotonic()
+        reference_images = reference_images or []
+        reference_videos = reference_videos or []
+        reference_audios = reference_audios or []
+        reference_mode = bool(reference_images or reference_videos or reference_audios)
+        if reference_mode and (first_frame is not None or last_frame is not None or loop):
+            raise ValueError("reference inputs cannot be combined with first_frame, last_frame, or loop")
+        if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
+            raise ValueError("reference mode supports at most 9 images, 3 videos, and 3 audio clips")
+        if reference_mode:
+            ensure_reference_weight()
         validate_inputs(first_frame=first_frame, last_frame=last_frame, loop=loop, steps=steps, seed=seed)
         frames = aligned_frames(duration)
         width, height = dimensions(aspect_ratio, size)
@@ -145,6 +168,9 @@ class H3Runtime:
         )
         first_name = self._stage_image(first_frame, "first")
         last_name = self._stage_image(last_frame, "last")
+        reference_image_names = [self._stage_media(path, "ref-image", i) for i, path in enumerate(reference_images, 1)]
+        reference_video_names = [self._stage_media(path, "ref-video", i) for i, path in enumerate(reference_videos, 1)]
+        reference_audio_names = [self._stage_media(path, "ref-audio", i) for i, path in enumerate(reference_audios, 1)]
         graph = build_workflow(
             prompt=formatted,
             width=width,
@@ -154,6 +180,9 @@ class H3Runtime:
             seed=seed,
             first_image_name=first_name,
             last_image_name=last_name,
+            reference_image_names=reference_image_names,
+            reference_video_names=reference_video_names,
+            reference_audio_names=reference_audio_names,
             cache=cache,
         )
         try:
@@ -205,6 +234,6 @@ class H3Runtime:
                     return GenerationResult(output, metrics)
             raise RuntimeError("generation exceeded 45 minute safety timeout")
         finally:
-            for name in (first_name, last_name):
+            for name in (first_name, last_name, *reference_image_names, *reference_video_names, *reference_audio_names):
                 if name:
                     (COMFY_ROOT / "input" / name).unlink(missing_ok=True)

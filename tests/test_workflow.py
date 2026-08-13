@@ -34,3 +34,26 @@ def test_easycache_is_only_inserted_when_operator_tuning_is_supplied():
     assert graph["6"]["inputs"]["model"] == ["15", 0]
     assert graph["9"]["inputs"]["model"] == ["15", 0]
     assert graph["16"] == {"class_type": "LoadImage", "inputs": {"image": "first.png"}}
+
+
+def test_reference_workflow_uses_ref2va_and_native_media_loaders():
+    graph = build_workflow(
+        prompt="Use <Picture 1>, <Video 1>, and <Audio 2>.",
+        width=864,
+        height=480,
+        frames=124,
+        steps=20,
+        seed=11,
+        reference_image_names=["identity.png"],
+        reference_video_names=["motion.mp4"],
+        reference_audio_names=["voice.wav"],
+    )
+    assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+    assert graph["5"]["class_type"] == "MiniMaxH3ReferenceToVideo"
+    assert graph["5"]["inputs"]["audio_vae"] == ["4", 0]
+    assert graph["15"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
+    assert graph["16"] == {"class_type": "LoadVideo", "inputs": {"file": "motion.mp4"}}
+    assert graph["17"] == {"class_type": "GetVideoComponents", "inputs": {"video": ["16", 0]}}
+    assert graph["5"]["inputs"]["ref_video_1"] == ["17", 0]
+    assert graph["5"]["inputs"]["ref_video_audio_1"] == ["17", 1]
+    assert graph["18"] == {"class_type": "LoadAudio", "inputs": {"audio": "voice.wav"}}

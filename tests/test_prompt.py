@@ -9,6 +9,8 @@ def test_duration_grid_and_native_dimensions():
     assert aligned_frames(15) == 362
     assert dimensions("16:9", "native") == (1344, 768)
     assert dimensions("9:16", "native") == (768, 1344)
+    assert dimensions("16:9", "preview") == (864, 480)
+    assert dimensions("16:9", "balanced") == (1024, 576)
     with pytest.raises(ValueError, match="between 4 and 15"):
         aligned_frames(3)
 
