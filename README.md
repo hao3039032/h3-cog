@@ -62,7 +62,7 @@ upstream sparse-attention release.
 | `size` | `balanced` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `20` | 20 official; 12–16 preview; allowed 8–30 |
-| `structured_prompt` | `true` | Applies the public MiniMax audiovisual prompt shape |
+| `structured_prompt` | `false` | Optional FL-style audiovisual wrapper; native REF2VA prompts should leave this off |
 | `include_audio` | `true` | Keep or strip H3's generated stereo audio |
 | `output_codec` | `webm-av1` | `webm-av1` or `mp4-h264` |
 | `encode_quality` | `26` | Lower is higher quality and larger |

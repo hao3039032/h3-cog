@@ -131,7 +131,7 @@ class H3Runtime:
         duration: float = 5.0,
         steps: int = 20,
         seed: int | None = None,
-        structured_prompt: bool = True,
+        structured_prompt: bool = False,
         include_audio: bool = True,
         output_codec: str = "webm-av1",
         encode_quality: int = 26,
@@ -195,7 +195,10 @@ class H3Runtime:
                     raw = self._history_output(entry)
                     sample_seconds = time.monotonic() - sample_started
                     encode_started = time.monotonic()
-                    output = encode_video(raw, output_codec, encode_quality, include_audio)
+                    try:
+                        output = encode_video(raw, output_codec, encode_quality, include_audio)
+                    finally:
+                        raw.unlink(missing_ok=True)
                     encode_seconds = time.monotonic() - encode_started
                     total_seconds = time.monotonic() - total_started
                     print(

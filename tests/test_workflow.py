@@ -13,6 +13,9 @@ def test_ref2va_workflow_has_official_h3_sampling_path():
     assert graph["8"]["inputs"]["sampler_name"] == "res_multistep"
     assert graph["9"]["inputs"] == {"model": ["1", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0}
     assert graph["13"]["inputs"]["audio"] == ["12", 0]
+    assert graph["14"]["inputs"]["codec"] == "h264"
+    assert graph["14"]["inputs"]["codec.encoding"] == "re-encode"
+    assert graph["14"]["inputs"]["codec.encoding.crf"] == 17.0
 
 def test_easycache_is_only_inserted_when_operator_tuning_is_supplied():
     cache = CacheTuning("balanced", 0.12, 0.15, 0.9, False, "sweep-1", "balanced")

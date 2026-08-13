@@ -107,7 +107,12 @@ def build_workflow(
                 "video": ["13", 0],
                 "filename_prefix": f"h3/raw-{uuid.uuid4().hex}",
                 "format": "mp4",
-                "codec": {"codec": "h264", "encoding": {"encoding": "re-encode", "crf": 17.0}},
+                # Comfy's V3 DynamicCombo API is flattened in prompt JSON and
+                # reconstructed before SaveVideo.execute(). A nested object is
+                # silently discarded and only fails after the expensive sample.
+                "codec": "h264",
+                "codec.encoding": "re-encode",
+                "codec.encoding.crf": 17.0,
             },
         },
     }

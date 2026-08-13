@@ -74,7 +74,7 @@ def handler(event):
             duration=float(values.get("duration", 5)),
             steps=int(values.get("steps", 20)),
             seed=values.get("seed"),
-            structured_prompt=bool(values.get("structured_prompt", True)),
+            structured_prompt=bool(values.get("structured_prompt", False)),
             include_audio=bool(values.get("include_audio", True)),
             output_codec=values.get("output_codec", "webm-av1"),
             encode_quality=int(values.get("encode_quality", 26)),
