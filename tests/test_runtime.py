@@ -1,5 +1,7 @@
 import hashlib
 
+import inspect
+
 import h3_runtime
 from h3_runtime import GenerationResult, H3Runtime
 
@@ -33,3 +35,9 @@ def test_generation_metrics_cover_output_identity_and_lossless_default(tmp_path,
     assert result.metrics["output_sha256"] == hashlib.sha256(b"encoded-video").hexdigest()
     assert result.metrics["generation_seconds"] >= 0
     assert result.metrics["encode_seconds"] >= 0
+def test_ref2va_product_defaults_are_vertical_preview_mp4():
+    defaults = inspect.signature(h3_runtime.H3Runtime.generate).parameters
+    assert defaults["aspect_ratio"].default == "9:16"
+    assert defaults["size"].default == "preview"
+    assert defaults["structured_prompt"].default is False
+    assert defaults["output_codec"].default == "mp4-h264"
