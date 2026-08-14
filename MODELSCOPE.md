@@ -4,6 +4,7 @@ The runtime has a native single-GPU path and an explicit opt-in Raylight path:
 
 | Visible GPUs | Backend | Memory policy |
 | --- | --- | --- |
+| 1× 84GB-class card | native ComfyUI | HighVRAM keeps loaded weights resident |
 | 1× 48GB card | native ComfyUI | normal DynamicVRAM with staged component loading |
 | 1× RTX 4090 24GB | native ComfyUI | automatically enables low-VRAM mode for correctness |
 | 2+ cards | Raylight opt-in | FSDP2 shards transformer weights; Ulysses2 shards the token sequence |
@@ -21,6 +22,9 @@ MP4/H.264, and one generation at a time.
 Set `H3_LOWVRAM=0` only to experiment with normal DynamicVRAM on a 24GB card;
 the safe automatic default is low-VRAM mode. GPUs with at least 28GB keep the
 existing normal DynamicVRAM policy unless `H3_LOWVRAM=1` is explicitly set.
+GPUs reporting at least 80GiB use ComfyUI's HighVRAM mode so the INT8 weights can
+remain on the card after their first load. Set `H3_HIGHVRAM=0` to compare the
+DynamicVRAM path; `H3_LOWVRAM=1` still takes precedence as the emergency mode.
 The Studio image rebuilds SageAttention for SM80, SM89, and SM120. SM120 needs
 CUDA toolkit 12.8 or newer. On an SM120 RTX 6000 D / RTX PRO 6000-class card,
 compare SageAttention against PyTorch SDPA with the same seed before promoting

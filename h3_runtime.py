@@ -57,7 +57,7 @@ def _comfy_error(status: dict) -> str:
 
 
 def _comfy_command() -> list[str]:
-    """Use DynamicVRAM on supported GPUs with an emergency low-VRAM fallback."""
+    """Keep large-memory GPUs resident and provide explicit fallback modes."""
     command = [
         sys.executable,
         str(COMFY_ROOT / "main.py"),
@@ -67,6 +67,8 @@ def _comfy_command() -> list[str]:
         "--disable-metadata",
         "--reserve-vram", os.getenv("H3_RESERVE_VRAM_GB", "1.0"),
     ]
+    if _use_highvram():
+        command.append("--highvram")
     if _use_lowvram():
         command.append("--lowvram")
     return command
@@ -118,6 +120,17 @@ def _use_lowvram() -> bool:
     return _gpu_count() == 1 and memory_gib is not None and memory_gib < 28
 
 
+def _use_highvram() -> bool:
+    """Keep the complete weight set resident on one 80GB-class GPU."""
+    configured = os.getenv("H3_HIGHVRAM")
+    if configured is not None:
+        return configured.lower() in {"1", "true", "yes"}
+    if os.getenv("H3_LOWVRAM") is not None:
+        return False
+    memory_gib = _gpu_memory_gib()
+    return _gpu_count() == 1 and memory_gib is not None and memory_gib >= 80
+
+
 def select_parallel_mode(requested: str | None = None, gpu_count: int | None = None) -> str:
     """Select native single-GPU execution or Raylight's two-GPU path."""
     requested = (requested or os.getenv("H3_PARALLEL_MODE", "single")).strip().lower()
@@ -143,6 +156,8 @@ def _raylight_nodes_available() -> bool:
 
 def _sage_attention_supported() -> bool:
     """Only enable SageAttention on architectures built into the operator image."""
+    if os.getenv("H3_SAGE_ATTENTION", "1").strip().lower() in {"0", "false", "no"}:
+        return False
     try:
         import torch
 
@@ -156,6 +171,8 @@ def _sage_attention_supported() -> bool:
 def _vram_mode(command: list[str]) -> str:
     if "--lowvram" in command:
         return "low"
+    if "--highvram" in command:
+        return "high-resident"
     return "normal-dynamic"
 
 
@@ -267,7 +284,7 @@ class H3Runtime:
             "H3 execution config: "
             f"gpu={_gpu_name()} "
             f"vram_mode={_vram_mode(command)} "
-            "dynamic_vram=on "
+            f"dynamic_vram={'on' if '--highvram' not in command else 'off'} "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
             flush=True,
         )

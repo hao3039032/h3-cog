@@ -57,6 +57,7 @@ def test_comfy_error_reports_exception_without_dumping_tensor_inputs():
 
 def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(monkeypatch):
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
+    monkeypatch.delenv("H3_HIGHVRAM", raising=False)
     monkeypatch.delenv("H3_RESERVE_VRAM_GB", raising=False)
     monkeypatch.setattr(h3_runtime, "_gpu_name", lambda: "NVIDIA L40S")
     monkeypatch.setattr(h3_runtime, "_gpu_memory_gib", lambda: 48.0)
@@ -67,6 +68,7 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     assert command[command.index("--reserve-vram") + 1] == "1.0"
 
     monkeypatch.setenv("H3_LOWVRAM", "1")
+    monkeypatch.setenv("H3_HIGHVRAM", "0")
     monkeypatch.setenv("H3_RESERVE_VRAM_GB", "3")
     command = h3_runtime._comfy_command()
     assert "--lowvram" in command
@@ -75,12 +77,37 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     assert command[command.index("--reserve-vram") + 1] == "3"
 
 
+def test_large_single_gpu_uses_highvram_with_manual_overrides(monkeypatch):
+    monkeypatch.delenv("H3_LOWVRAM", raising=False)
+    monkeypatch.delenv("H3_HIGHVRAM", raising=False)
+    monkeypatch.setattr(h3_runtime, "_gpu_memory_gib", lambda: 84.0)
+    monkeypatch.setattr(h3_runtime, "_gpu_count", lambda: 1)
+    command = h3_runtime._comfy_command()
+    assert "--highvram" in command
+    assert "--lowvram" not in command
+
+    monkeypatch.setenv("H3_HIGHVRAM", "0")
+    command = h3_runtime._comfy_command()
+    assert "--highvram" not in command
+    assert "--lowvram" not in command
+
+    monkeypatch.setenv("H3_LOWVRAM", "1")
+    command = h3_runtime._comfy_command()
+    assert "--highvram" not in command
+    assert "--lowvram" in command
+
+
 def test_single_24gb_gpu_automatically_uses_safe_lowvram_mode(monkeypatch):
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
+    monkeypatch.delenv("H3_HIGHVRAM", raising=False)
     monkeypatch.setattr(h3_runtime, "_gpu_memory_gib", lambda: 24.0)
     monkeypatch.setattr(h3_runtime, "_gpu_count", lambda: 1)
     assert "--lowvram" in h3_runtime._comfy_command()
 
+    monkeypatch.setenv("H3_HIGHVRAM", "0")
+    assert "--lowvram" in h3_runtime._comfy_command()
+
+    monkeypatch.delenv("H3_HIGHVRAM", raising=False)
     monkeypatch.setenv("H3_LOWVRAM", "0")
     assert "--lowvram" not in h3_runtime._comfy_command()
 
@@ -111,6 +138,11 @@ def test_sage_attention_covers_sm80_sm89_sm120_and_rejects_sm90(monkeypatch):
     assert h3_runtime._sage_attention_supported() is True
 
     FakeCuda.capability = (9, 0)
+    assert h3_runtime._sage_attention_supported() is False
+
+
+def test_sage_attention_can_be_disabled_for_same_seed_ab_tests(monkeypatch):
+    monkeypatch.setenv("H3_SAGE_ATTENTION", "0")
     assert h3_runtime._sage_attention_supported() is False
 
 

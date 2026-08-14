@@ -72,20 +72,23 @@ The default native 9:16 canvas is 768×1344 and `preview` is 480×864, while
 preserving 32-pixel alignment. A requested 5 seconds is 124
 frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
 
-On a 48GB L40S, ComfyUI uses its default DynamicVRAM path, which measured about
-7% faster than estimate-based loading on the same 480x864, 362-frame workload.
-The same DynamicVRAM policy is used on 80GB A100 and H100 workers so hardware
-comparisons do not also change memory-management strategy. The Cog image builds
-SageAttention for SM80, SM89, and SM120. H100 uses PyTorch SDPA because the
-SM90 FP8 SageAttention path produced corrupted H3 video during validation. Set
-`H3_LOWVRAM=1` only as an emergency fallback; `H3_RESERVE_VRAM_GB` defaults to
-`1.0`.
+On a 48GB L40S, ComfyUI's DynamicVRAM path measured about 7% faster than
+estimate-based loading on the same 480x864, 362-frame workload.
 
-The runtime defaults to `H3_PARALLEL_MODE=single`. A 48GB or larger card uses
-normal DynamicVRAM; a single 24GB GPU automatically adds ComfyUI's `--lowvram`
-flag for correctness only. Raylight FSDP2 + Ulysses2 remains available as an
-explicit two-GPU compatibility path. See [MODELSCOPE.md](MODELSCOPE.md) for the
-Gradio Studio entry point and deployment requirements.
+The runtime defaults to `H3_PARALLEL_MODE=single`. GPUs reporting at least
+80GiB use ComfyUI's HighVRAM mode so the INT8 weight set can stay resident;
+28-to-79GiB cards use normal DynamicVRAM; a single 24GB GPU automatically adds
+ComfyUI's `--lowvram` flag for correctness. `H3_HIGHVRAM=0` selects DynamicVRAM
+for an A/B test, while `H3_LOWVRAM=1` remains the emergency override. Raylight
+FSDP2 + Ulysses2 remains available as an explicit two-GPU compatibility path.
+See [MODELSCOPE.md](MODELSCOPE.md) for the Gradio Studio entry point and
+deployment requirements.
+
+The Cog image builds SageAttention for SM80, SM89, and SM120. H100 uses
+PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted H3
+video during validation. Set `H3_SAGE_ATTENTION=0` for a same-seed PyTorch SDPA
+comparison on supported cards. Set `H3_LOWVRAM=1` only as an emergency fallback;
+`H3_RESERVE_VRAM_GB` defaults to `1.0`.
 
 ## Local Cog usage
 
@@ -178,8 +181,8 @@ resident on a 24GB or 48GB card, so ComfyUI stages components between prompt
 encoding, denoising, and VAE decode. The 48GB path keeps normal DynamicVRAM
 and is the practical single-card target; 24GB remains a correctness fallback.
 Use at least 64GB system RAM (96GB is more comfortable) and a persistent weight
-volume. A 96GB RTX PRO 6000-class card has enough capacity for the weights and
-a substantially more stable resident working set.
+volume for the DynamicVRAM path. GPUs reporting at least 80GiB have enough room
+for the weights plus activations and use HighVRAM after the first load.
 
 Use preview/balanced for most requests, keep the process warm for bursts, and
 scale the worker to zero when idle. app.nz's H3 template publishes the final
