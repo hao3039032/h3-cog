@@ -269,7 +269,7 @@ class H3Runtime:
         aspect_ratio: str = "9:16",
         size: str = "preview",
         duration: float = 5.0,
-        steps: int = 20,
+        steps: int = 24,
         seed: int | None = None,
         structured_prompt: bool = False,
         include_audio: bool = True,

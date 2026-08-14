@@ -37,6 +37,7 @@ def test_generation_metrics_cover_output_identity_and_lossless_default(tmp_path,
     assert result.metrics["encode_seconds"] >= 0
 def test_ref2va_product_defaults_are_vertical_preview_mp4():
     defaults = inspect.signature(h3_runtime.H3Runtime.generate).parameters
+    assert defaults["steps"].default == 24
     assert defaults["aspect_ratio"].default == "9:16"
     assert defaults["size"].default == "preview"
     assert defaults["structured_prompt"].default is False

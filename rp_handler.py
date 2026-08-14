@@ -72,7 +72,7 @@ def handler(event):
             aspect_ratio=values.get("aspect_ratio", "9:16"),
             size=values.get("size", "preview"),
             duration=float(values.get("duration", 5)),
-            steps=int(values.get("steps", 20)),
+            steps=int(values.get("steps", 24)),
             seed=values.get("seed"),
             structured_prompt=bool(values.get("structured_prompt", False)),
             include_audio=bool(values.get("include_audio", True)),

@@ -16,7 +16,7 @@ class Runner(BaseRunner):
         aspect_ratio: str = Input(default="9:16", choices=["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"]),
         size: str = Input(description="Preview is 480p and recommended; native uses H3's full 768px short edge", default="preview", choices=["preview", "balanced", "native"]),
         duration: float = Input(description="Requested seconds; snaps to H3's 17k+5 frame grid at 24fps", default=5.0, ge=4.0, le=15.0),
-        steps: int = Input(description="20 is the official quality setting; 12-16 is useful for previews", default=20, ge=8, le=30),
+        steps: int = Input(description="24 is the deployment quality default; 12-16 is useful for previews", default=24, ge=8, le=60),
         seed: int | None = Input(description="Blank selects a cryptographically random seed", default=None, ge=0, le=9223372036854775807),
         structured_prompt: bool = Input(description="Optional FL-style audiovisual wrapper; leave off for native REF2VA prompts", default=False),
         include_audio: bool = Input(description="Keep H3's native synchronized stereo audio", default=True),
