@@ -102,7 +102,7 @@ def build_demo() -> gr.Blocks:
                     aspect_ratio = gr.Dropdown(["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], value="9:16", label="画幅")
                     size = gr.Dropdown(["preview", "balanced", "native"], value="preview", label="尺寸（preview 为 480p）")
                     duration = gr.Slider(4, 15, value=5, step=0.5, label="时长（秒）")
-                    steps = gr.Slider(8, 30, value=20, step=1, label="采样步数")
+                    steps = gr.Slider(8, 60, value=20, step=1, label="采样步数")
                 with gr.Row():
                     seed = gr.Number(value=None, precision=0, minimum=0, maximum=2**63 - 1, label="Seed（留空随机）")
                     include_audio = gr.Checkbox(value=True, label="保留生成音频")

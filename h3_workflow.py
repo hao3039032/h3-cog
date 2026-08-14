@@ -71,8 +71,8 @@ def validate_inputs(
     steps: int,
     seed: int | None,
 ) -> None:
-    if not 8 <= int(steps) <= 30:
-        raise ValueError("steps must be between 8 and 30")
+    if not 8 <= int(steps) <= 60:
+        raise ValueError("steps must be between 8 and 60")
     if seed is not None and not 0 <= int(seed) <= 2**63 - 1:
         raise ValueError("seed must be between 0 and 2^63-1")
 
