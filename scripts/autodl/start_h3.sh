@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Instance-specific public URLs can be kept out of the repository.
+if [[ -r /root/.h3-env ]]; then
+    set -a
+    . /root/.h3-env
+    set +a
+fi
+
 H3_CODE_DIR="${H3_CODE_DIR:-/root/h3-cog}"
 export COMFY_ROOT="${COMFY_ROOT:-/root/ComfyUI}"
 export WEIGHTS_DIR="${WEIGHTS_DIR:-/root/autodl-tmp/weights}"
