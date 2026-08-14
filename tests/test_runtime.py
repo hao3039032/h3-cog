@@ -71,3 +71,29 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     assert "--highvram" not in command
     assert "--disable-dynamic-vram" not in command
     assert command[command.index("--reserve-vram") + 1] == "3"
+
+
+def test_sage_attention_is_limited_to_validated_h3_architectures(monkeypatch):
+    class FakeCuda:
+        available = True
+        capability = (8, 9)
+
+        @classmethod
+        def is_available(cls):
+            return cls.available
+
+        @classmethod
+        def get_device_capability(cls, _index):
+            return cls.capability
+
+    class FakeTorch:
+        cuda = FakeCuda
+
+    monkeypatch.setitem(__import__("sys").modules, "torch", FakeTorch)
+    assert h3_runtime._sage_attention_supported() is True
+
+    FakeCuda.capability = (8, 0)
+    assert h3_runtime._sage_attention_supported() is True
+
+    FakeCuda.capability = (9, 0)
+    assert h3_runtime._sage_attention_supported() is False

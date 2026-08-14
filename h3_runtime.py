@@ -88,6 +88,18 @@ def _gpu_name() -> str:
     return "unknown"
 
 
+def _sage_attention_supported() -> bool:
+    """Only enable SageAttention on architectures validated for H3 output."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_capability(0) in {(8, 0), (8, 9)}
+    except Exception:
+        pass
+    return False
+
+
 def _vram_mode(command: list[str]) -> str:
     if "--lowvram" in command:
         return "low"
@@ -102,13 +114,14 @@ class H3Runtime:
 
     def _start_comfy(self) -> subprocess.Popen:
         command = _comfy_command()
-        attention = "pytorch"
-        try:
-            __import__("sageattention")
-            command.append("--use-sage-attention")
-            attention = "sageattention"
-        except ImportError:
-            pass
+        attention = "pytorch-sdpa"
+        if _sage_attention_supported():
+            try:
+                __import__("sageattention")
+                command.append("--use-sage-attention")
+                attention = "sageattention"
+            except ImportError:
+                pass
         env = os.environ.copy()
         env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
         process = subprocess.Popen(command, cwd=COMFY_ROOT, env=env)

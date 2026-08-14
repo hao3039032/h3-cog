@@ -75,8 +75,9 @@ On a 48GB L40S, ComfyUI uses its default DynamicVRAM path, which measured about
 7% faster than estimate-based loading on the same 480x864, 362-frame workload.
 The same DynamicVRAM policy is used on 80GB A100 and H100 workers so hardware
 comparisons do not also change memory-management strategy. The published
-Replicate image builds SageAttention for SM80 (A100), SM89 (L40S), and SM90
-(H100). Set `H3_LOWVRAM=1` only as an emergency fallback;
+Replicate image builds SageAttention for SM80 (A100) and SM89 (L40S). H100
+uses PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted
+H3 video during validation. Set `H3_LOWVRAM=1` only as an emergency fallback;
 `H3_RESERVE_VRAM_GB` defaults to `1.0`.
 
 ## Local Cog usage
