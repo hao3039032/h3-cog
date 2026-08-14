@@ -57,7 +57,7 @@ def _comfy_error(status: dict) -> str:
 
 
 def _comfy_command() -> list[str]:
-    """Use Comfy's measured-faster DynamicVRAM path with an emergency fallback."""
+    """Use DynamicVRAM on supported GPUs with an emergency low-VRAM fallback."""
     command = [
         sys.executable,
         str(COMFY_ROOT / "main.py"),
@@ -67,9 +67,31 @@ def _comfy_command() -> list[str]:
         "--disable-metadata",
         "--reserve-vram", os.getenv("H3_RESERVE_VRAM_GB", "1.0"),
     ]
-    if os.getenv("H3_LOWVRAM", "").lower() in {"1", "true", "yes"}:
+    if _env_enabled("H3_LOWVRAM"):
         command.append("--lowvram")
     return command
+
+
+def _env_enabled(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes"}
+
+
+def _gpu_name() -> str:
+    """Return the CUDA device name without making hardware detection fatal."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_name(0)
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _vram_mode(command: list[str]) -> str:
+    if "--lowvram" in command:
+        return "low"
+    return "normal-dynamic"
 
 
 class H3Runtime:
@@ -96,9 +118,9 @@ class H3Runtime:
                 raise RuntimeError(f"ComfyUI exited during startup with code {process.returncode}")
             try:
                 _json_request("/system_stats", timeout=3)
-                vram_mode = "low" if "--lowvram" in command else "normal-dynamic"
                 print(
-                    f"MiniMax H3 ready: attention={attention} vram_mode={vram_mode} "
+                    f"MiniMax H3 ready: attention={attention} gpu={_gpu_name()} "
+                    f"vram_mode={_vram_mode(command)} "
                     f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]} comfy_pid={process.pid}",
                     flush=True,
                 )
@@ -167,7 +189,8 @@ class H3Runtime:
         command = _comfy_command()
         print(
             "H3 execution config: "
-            f"vram_mode={'low' if '--lowvram' in command else 'normal-dynamic'} "
+            f"gpu={_gpu_name()} "
+            f"vram_mode={_vram_mode(command)} "
             "dynamic_vram=on "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
             flush=True,

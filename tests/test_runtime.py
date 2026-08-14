@@ -58,6 +58,7 @@ def test_comfy_error_reports_exception_without_dumping_tensor_inputs():
 def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(monkeypatch):
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
     monkeypatch.delenv("H3_RESERVE_VRAM_GB", raising=False)
+    monkeypatch.setattr(h3_runtime, "_gpu_name", lambda: "NVIDIA L40S")
     command = h3_runtime._comfy_command()
     assert "--lowvram" not in command
     assert "--disable-dynamic-vram" not in command
@@ -67,5 +68,6 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     monkeypatch.setenv("H3_RESERVE_VRAM_GB", "3")
     command = h3_runtime._comfy_command()
     assert "--lowvram" in command
+    assert "--highvram" not in command
     assert "--disable-dynamic-vram" not in command
     assert command[command.index("--reserve-vram") + 1] == "3"

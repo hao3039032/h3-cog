@@ -73,8 +73,10 @@ frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
 
 On a 48GB L40S, ComfyUI uses its default DynamicVRAM path, which measured about
 7% faster than estimate-based loading on the same 480x864, 362-frame workload.
-Set `H3_LOWVRAM=1` only as an emergency fallback; `H3_RESERVE_VRAM_GB` defaults
-to `1.0`.
+The same DynamicVRAM policy is used on an 80GB H100 so hardware comparisons do
+not also change memory-management strategy. The SageAttention extension is
+built for both SM89 (L40S) and SM90 (H100). Set `H3_LOWVRAM=1` only as an
+emergency fallback; `H3_RESERVE_VRAM_GB` defaults to `1.0`.
 
 ## Local Cog usage
 
