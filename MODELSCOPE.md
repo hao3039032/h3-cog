@@ -78,6 +78,16 @@ program. The wrapper runs the Gradio service on port 6006 and forwards stops to
 the ComfyUI/Ray process group so lazy-started workers cannot outlive a service
 restart.
 
+Some reverse proxies publish the service on a non-standard HTTPS port but omit
+that port from `X-Forwarded-Host`. Set `GRADIO_PUBLIC_PORT` to that external
+port, for example `8443` on AutoDL. If the proxy also omits
+`X-Forwarded-Proto` or reports the internal protocol, set
+`GRADIO_PUBLIC_PROTO=https`; Gradio will then construct file URLs with the
+current forwarded host instead of a startup-specific domain. Leave both unset
+for normal proxies. A full
+`GRADIO_ROOT_PATH=https://host:port` override still takes precedence for
+deployments with a fixed public origin.
+
 For a bare-metal SM120 host with CUDA toolkit 12.8 or newer, build only the
 local architecture:
 

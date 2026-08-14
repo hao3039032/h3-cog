@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Any
 
 import gradio as gr
+from fastapi.middleware import Middleware
 
+from h3_gradio import (
+    PublicOriginMiddleware,
+    configured_public_port,
+    configured_public_proto,
+)
 from h3_runtime import H3Runtime
 
 _runtime: H3Runtime | None = None
@@ -121,8 +127,21 @@ def build_demo() -> gr.Blocks:
 demo = build_demo()
 
 if __name__ == "__main__":
+    public_port = configured_public_port(os.getenv("GRADIO_PUBLIC_PORT"))
+    public_proto = configured_public_proto(os.getenv("GRADIO_PUBLIC_PROTO"))
+    app_kwargs = {}
+    middleware_options = {}
+    if public_port is not None:
+        middleware_options["public_port"] = public_port
+    if public_proto is not None:
+        middleware_options["public_proto"] = public_proto
+    if middleware_options:
+        app_kwargs["middleware"] = [
+            Middleware(PublicOriginMiddleware, **middleware_options)
+        ]
     demo.queue(default_concurrency_limit=1).launch(
         server_name="0.0.0.0",
         server_port=int(os.getenv("PORT", "7860")),
         show_error=True,
+        app_kwargs=app_kwargs,
     )
