@@ -8,6 +8,7 @@ def test_ref2va_workflow_has_official_h3_sampling_path():
         reference_image_names=["identity.png"],
     )
     assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+    assert graph["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
     assert graph["2"]["inputs"]["type"] == "minimax"
     assert graph["5"]["class_type"] == "MiniMaxH3ReferenceToVideo"
     assert graph["8"]["inputs"]["sampler_name"] == "res_multistep"
@@ -72,6 +73,8 @@ def test_raylight_workflow_defaults_to_fsdp_and_ulysses2():
     assert initializer["inputs"]["use_mmap"] is True
     assert graph["2"]["class_type"] == "RayUNETLoader"
     assert graph["2"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+    assert graph["3"]["class_type"] == "CLIPLoader"
+    assert graph["3"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
     assert graph["7"] == {"class_type": "RayBasicGuider", "inputs": {"ray_actors": ["2", 0], "conditioning": ["6", 0]}}
     assert graph["9"]["class_type"] == "RayBasicScheduler"
     assert graph["10"]["class_type"] == "XFuserSamplerCustomAdvanced"

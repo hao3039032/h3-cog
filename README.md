@@ -34,8 +34,8 @@ does not permit it.
 - Official `res_multistep` sampler and 20-step quality default; 12–16 steps and
   reduced pixel area are exposed for previews.
 - optional SageAttention when supplied by the image operator, with PyTorch
-  attention fallback; one 24GB RTX 4090 uses ComfyUI low-VRAM offloading and
-  two 4090s use Raylight FSDP2 + Ulysses2.
+  attention fallback; one 48GB card uses normal DynamicVRAM, while a 24GB card
+  is limited to the low-VRAM correctness fallback.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
   fallback. Native audio is remuxed as Opus or AAC.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
@@ -80,12 +80,11 @@ uses PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted
 H3 video during validation. Set `H3_LOWVRAM=1` only as an emergency fallback;
 `H3_RESERVE_VRAM_GB` defaults to `1.0`.
 
-On this branch, `H3_PARALLEL_MODE=auto` selects the native workflow for one
-visible GPU and Raylight for two or more. The distributed graph uses two GPUs,
-FSDP-shards the INT8 transformer, and splits its token sequence with Ulysses2;
-it does not enable FSDP CPU offload. A single 24GB GPU automatically adds
-ComfyUI's `--lowvram` flag for correctness. See [MODELSCOPE.md](MODELSCOPE.md)
-for the Gradio Studio entry point and deployment requirements.
+The runtime defaults to `H3_PARALLEL_MODE=single`. A 48GB or larger card uses
+normal DynamicVRAM; a single 24GB GPU automatically adds ComfyUI's `--lowvram`
+flag for correctness only. Raylight FSDP2 + Ulysses2 remains available as an
+explicit two-GPU compatibility path. See [MODELSCOPE.md](MODELSCOPE.md) for the
+Gradio Studio entry point and deployment requirements.
 
 ## Local Cog usage
 
@@ -106,32 +105,25 @@ The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI v0.31.0
 contract matches Raylight's H3 distributed forward. The published production
 image contains its model weights.
 
-## R2 model mirror
+## Verified weight sources
 
-The REF2VA-only production set contains about 42.5GB of weights:
+The REF2VA-only production set contains about 53.92GB of weights:
 
 ```text
 diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
-text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
 vae/minimax_h3_video_vae_fp16.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
 ```
 
-Development images resume downloads, verify exact size and SHA-256, and link the
-cache into ComfyUI. A production image sets `H3_BAKED_WEIGHTS_VERIFIED=1` after
-verifying its immutable layers, so startup checks sizes without network access
-or a full SHA-256 pass.
+All four weights are pinned to ModelScope. Development images resume downloads,
+verify exact size and SHA-256, and link the cache into ComfyUI. A
+production image sets `H3_BAKED_WEIGHTS_VERIFIED=1` after verifying its
+immutable layers, so startup checks sizes without network access or a full
+SHA-256 pass.
 
-To populate the mirror after accepting the upstream license:
-
-```sh
-uv run --extra mirror python mirror_weights.py --dry-run
-uv run --extra mirror python mirror_weights.py --bucket appstatic
-```
-
-Required R2 variables are `R2_ENDPOINT`, `AWS_ACCESS_KEY_ID`, and
-`AWS_SECRET_ACCESS_KEY`. The upload publishes immutable weight objects and a
-short-cache manifest containing exact sizes and SHA-256 hashes.
+Each entry includes its exact source URL, size, and SHA-256. No remote manifest
+request is made before installation or startup.
 
 ## RunPod Serverless
 
@@ -145,7 +137,7 @@ The handler accepts Cog-compatible reference URL lists and `reference_*_urls`
 aliases. It rejects private/reserved network targets, caps each file at 512MiB, and
 returns a bounded base64 media output compatible with app.nz's Cog serverless
 shim. Set minimum workers to zero. A persistent network volume avoids
-re-downloading the 42.5GB model on cold workers.
+re-downloading the 53.92GB model on cold workers.
 
 ### Authenticated acceleration sweeps
 
@@ -177,14 +169,16 @@ same-seed `off` baseline. Promote a profile only after visual review of motion,
 audio synchronization, first/last-frame alignment, and loop seam; no H3
 EasyCache speedup or quality claim is made before those GPU A/B results exist.
 
-## 24GB GPU behavior and cost
+## Single-GPU memory and cost
 
-The pruned INT8 transformer is 20.97GB, NVFP4 Qwen encoder 15.69GB, visual VAE
-5.21GB, and audio VAE 0.61GB. They cannot all remain resident on a 24GB card;
-the single-4090 compatibility path intentionally offloads between prompt
-encoding, denoising, and VAE decode. It is a correctness fallback, not the
-latency target. A worker therefore needs at least 64GB system RAM and a
-persistent weight volume. Prefer the two-4090 Raylight path for production.
+The pruned INT8 transformer is 20.97GB, INT8 Qwen encoder 27.14GB, visual VAE
+5.21GB, and audio VAE 0.61GB, totaling about 53.92GB. They cannot all remain
+resident on a 24GB or 48GB card, so ComfyUI stages components between prompt
+encoding, denoising, and VAE decode. The 48GB path keeps normal DynamicVRAM
+and is the practical single-card target; 24GB remains a correctness fallback.
+Use at least 64GB system RAM (96GB is more comfortable) and a persistent weight
+volume. A 96GB RTX PRO 6000-class card has enough capacity for the weights and
+a substantially more stable resident working set.
 
 Use preview/balanced for most requests, keep the process warm for bursts, and
 scale the worker to zero when idle. app.nz's H3 template publishes the final
@@ -195,14 +189,15 @@ serverless compute price; billing remains per execution second.
 
 ```sh
 uv run --extra dev pytest
-python -m py_compile h3_*.py predict.py rp_handler.py weights.py mirror_weights.py
+python -m py_compile h3_*.py predict.py rp_handler.py weights.py
 cog build -t h3-cog:local
 ```
 
 Unit tests cover the H3 frame grid, native dimensions, official keyframe prompt
 prefixes, workflow graph, GPU/CPU encoder fallback, explicit license gate, and
 resumable SHA-verified downloads. A real GPU smoke test additionally requires
-the accepted model license, 43GB of weights, a 32GB CUDA GPU, and enough host RAM.
+the accepted model license, 54GB of weights, a 48GB CUDA GPU, and enough host
+RAM.
 
 `demo_prompts.json` is the deterministic seven-clip launch suite covering text,
 image, first/last-frame, loop, vertical, square, and ultrawide output. Keep seed,

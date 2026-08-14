@@ -1,42 +1,46 @@
-"""Verified R2-first MiniMax H3 weight installation for ComfyUI."""
+"""Verified ModelScope MiniMax H3 weight installation for ComfyUI."""
 
 from __future__ import annotations
 
 import fcntl
 import hashlib
-import json
 import os
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-REPO = "Comfy-Org/MiniMax-H3"
-R2_BASE = os.getenv("APPNZ_MODELS_BASE", "https://appstatic.app.nz/models")
+SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/opt/ComfyUI"))
+TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 FILES = {
-    "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors": "text_encoders",
+    TEXT_ENCODER_RELATIVE: "text_encoders",
     "vae/minimax_h3_video_vae_fp16.safetensors": "vae",
     "vae/minimax_h3_audio_vae_fp32.safetensors": "vae",
 }
-ONLINE_MANIFEST = {
-    "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors": {
-        "size": 15_687_142_551,
-        "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
+VERIFIED_WEIGHTS = {
+    TEXT_ENCODER_RELATIVE: {
+        "size": 27_141_342_152,
+        "sha256": "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923",
+        "url": f"{SOURCE_BASE}/{TEXT_ENCODER_RELATIVE}",
     },
     "vae/minimax_h3_video_vae_fp16.safetensors": {
         "size": 5_207_808_496,
         "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+        "url": f"{SOURCE_BASE}/vae/minimax_h3_video_vae_fp16.safetensors",
     },
     "vae/minimax_h3_audio_vae_fp32.safetensors": {
         "size": 605_254_808,
         "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+        "url": f"{SOURCE_BASE}/vae/minimax_h3_audio_vae_fp32.safetensors",
+    },
+    REF2VA_RELATIVE: {
+        "size": 20_970_379_616,
+        "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779",
+        "url": f"{SOURCE_BASE}/{REF2VA_RELATIVE}",
     },
 }
-REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-REF2VA_SIZE = 20_970_379_616
-REF2VA_SHA256 = "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
-REF2VA_URL = f"https://huggingface.co/{REPO}/resolve/main/{REF2VA_RELATIVE}"
 
 
 def weights_root() -> Path:
@@ -55,28 +59,6 @@ def license_accepted() -> bool:
 def baked_weights_verified() -> bool:
     """Trust weights stored in immutable, content-addressed image layers."""
     return os.getenv("H3_BAKED_WEIGHTS_VERIFIED", "").lower() in {"1", "true", "yes"}
-
-
-def _manifest() -> dict[str, dict]:
-    url = f"{R2_BASE.rstrip('/')}/{REPO}/manifest.json"
-    try:
-        request = urllib.request.Request(url, headers={"User-Agent": "appnz-h3-cog/0.1"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            entries = json.loads(response.read())
-    except Exception as error:
-        print(f"R2 manifest request failed this time ({error}); using verified Hugging Face metadata", flush=True)
-        return {
-            relative: {
-                **entry,
-                "url": f"https://huggingface.co/{REPO}/resolve/main/{relative}",
-            }
-            for relative, entry in ONLINE_MANIFEST.items()
-        }
-    if isinstance(entries, list):
-        entries = {entry["path"]: entry for entry in entries}
-    if not isinstance(entries, dict):
-        raise ValueError("weight manifest must be an object or list")
-    return entries
 
 
 def _sha256(path: Path) -> str:
@@ -151,15 +133,12 @@ def ensure_weights(workers: int = 4) -> dict[str, Path]:
     lock_path = root / ".download.lock"
     with lock_path.open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        # Immutable baked images were verified while being assembled. Avoid a
-        # startup network request entirely so scale-to-zero cold starts are not
-        # coupled to the R2 manifest endpoint.
-        manifest = ONLINE_MANIFEST if baked_weights_verified() else _manifest()
+        manifest = VERIFIED_WEIGHTS
 
         def fetch(relative: str) -> tuple[str, Path]:
             entry = manifest.get(relative)
             if not entry:
-                raise RuntimeError(f"R2 manifest is missing {relative}")
+                raise RuntimeError(f"verified weight manifest is missing {relative}")
             destination = root / relative
             expected_size = int(entry["size"])
             expected_sha = str(entry.get("sha256", ""))
@@ -168,7 +147,7 @@ def ensure_weights(workers: int = 4) -> dict[str, Path]:
                 valid = _sha256(destination) == expected_sha
             if not valid:
                 _download(
-                    entry.get("url") or f"{R2_BASE.rstrip('/')}/{REPO}/{relative}",
+                    entry["url"],
                     destination,
                     expected_size,
                     expected_sha,
@@ -194,10 +173,11 @@ def ensure_reference_weight() -> Path:
     lock_path = root / ".download.lock"
     with lock_path.open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        valid = destination.exists() and destination.stat().st_size == REF2VA_SIZE
+        entry = VERIFIED_WEIGHTS[REF2VA_RELATIVE]
+        valid = destination.exists() and destination.stat().st_size == int(entry["size"])
         if valid and not baked_weights_verified():
-            valid = _sha256(destination) == REF2VA_SHA256
+            valid = _sha256(destination) == entry["sha256"]
         if not valid:
-            _download(REF2VA_URL, destination, REF2VA_SIZE, REF2VA_SHA256)
+            _download(entry["url"], destination, int(entry["size"]), entry["sha256"])
         _install_link(destination, "diffusion_models")
     return destination

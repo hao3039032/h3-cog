@@ -89,7 +89,7 @@ def build_demo() -> gr.Blocks:
     with gr.Blocks(title="MiniMax H3 REF2VA") as demo:
         gr.Markdown(
             "# MiniMax H3 · REF2VA\n"
-            "单张 RTX 4090 自动使用 DynamicVRAM；两张 RTX 4090 自动使用 Raylight FSDP2 + Ulysses2。"
+            "默认单卡运行：48GB 显卡使用 DynamicVRAM，24GB 显卡自动降级为低显存模式。"
         )
         with gr.Row():
             with gr.Column(scale=3):

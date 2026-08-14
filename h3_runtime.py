@@ -120,7 +120,7 @@ def _use_lowvram() -> bool:
 
 def select_parallel_mode(requested: str | None = None, gpu_count: int | None = None) -> str:
     """Select native single-GPU execution or Raylight's two-GPU path."""
-    requested = (requested or os.getenv("H3_PARALLEL_MODE", "auto")).strip().lower()
+    requested = (requested or os.getenv("H3_PARALLEL_MODE", "single")).strip().lower()
     aliases = {"native": "single", "dual": "raylight", "fsdp": "raylight"}
     requested = aliases.get(requested, requested)
     if requested not in {"auto", "single", "raylight"}:

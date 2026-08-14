@@ -8,7 +8,6 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4,<9"]
-mirror = ["boto3>=1.40,<2", "huggingface-hub>=0.34,<1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

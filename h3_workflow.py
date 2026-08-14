@@ -10,7 +10,7 @@ from h3_tuning import CacheTuning
 
 FPS = 24
 REFERENCE_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-TEXT_ENCODER = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+TEXT_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
 

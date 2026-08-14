@@ -1,5 +1,4 @@
 import hashlib
-import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -48,19 +47,41 @@ def test_download_checks_size_sha_and_resumes(tmp_path):
         server.shutdown()
 
 
-def test_reference_weight_metadata_matches_huggingface_lfs():
-    assert weights.REF2VA_SIZE == 20_970_379_616
-    assert weights.REF2VA_SHA256 == "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
-    assert weights.REF2VA_URL.endswith("/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors")
+def test_reference_weight_metadata_matches_verified_source():
+    entry = weights.VERIFIED_WEIGHTS[weights.REF2VA_RELATIVE]
+    assert entry["size"] == 20_970_379_616
+    assert entry["sha256"] == "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
+    assert entry["url"].endswith("/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors")
 
 
-def test_manifest_falls_back_to_verified_huggingface_metadata(monkeypatch):
-    def unavailable(*args, **kwargs):
-        raise OSError("blocked")
+def test_weight_sources_are_pinned_to_modelscope_without_nvfp4():
+    assert set(weights.FILES) == {
+        "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
+        "vae/minimax_h3_video_vae_fp16.safetensors",
+        "vae/minimax_h3_audio_vae_fp32.safetensors",
+    }
+    entry = weights.VERIFIED_WEIGHTS[weights.TEXT_ENCODER_RELATIVE]
+    assert entry["size"] == 27_141_342_152
+    assert entry["sha256"] == "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923"
+    assert entry["url"] == "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+    assert all(entry["url"].startswith(weights.SOURCE_BASE + "/") for entry in weights.VERIFIED_WEIGHTS.values())
+    assert "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" not in weights.VERIFIED_WEIGHTS
 
-    monkeypatch.setattr(weights.urllib.request, "urlopen", unavailable)
-    manifest = weights._manifest()
-    assert "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" not in manifest
-    entry = manifest["text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"]
-    assert entry["size"] == 15_687_142_551
-    assert entry["url"].startswith("https://huggingface.co/Comfy-Org/MiniMax-H3/")
+
+def test_weight_installer_never_requests_a_manifest(monkeypatch, tmp_path):
+    def blocked(*args, **kwargs):
+        raise AssertionError("weight installation must use pinned source URLs")
+
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+    downloaded = []
+    monkeypatch.setattr(
+        weights,
+        "_download",
+        lambda url, destination, size, sha256: downloaded.append((url, destination, size, sha256)),
+    )
+    monkeypatch.setattr(weights.urllib.request, "urlopen", blocked)
+    installed = weights.ensure_weights()
+    assert set(installed) == set(weights.FILES)
+    assert [url for url, *_ in downloaded] == [weights.VERIFIED_WEIGHTS[path]["url"] for path in weights.FILES]

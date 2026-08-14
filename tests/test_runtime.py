@@ -111,7 +111,8 @@ def test_sage_attention_is_limited_to_validated_h3_architectures(monkeypatch):
     assert h3_runtime._sage_attention_supported() is False
 
 
-def test_parallel_mode_auto_supports_one_or_two_4090s():
+def test_parallel_mode_defaults_to_single_gpu_and_keeps_raylight_opt_in():
+    assert h3_runtime.select_parallel_mode(gpu_count=2) == "single"
     assert h3_runtime.select_parallel_mode("auto", gpu_count=1) == "single"
     assert h3_runtime.select_parallel_mode("auto", gpu_count=2) == "raylight"
     assert h3_runtime.select_parallel_mode("single", gpu_count=2) == "single"
