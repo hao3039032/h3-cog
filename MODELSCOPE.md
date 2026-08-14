@@ -34,8 +34,9 @@ WEIGHTS_DIR=/persistent-volume/models
 PORT=7860
 ```
 
-The deployment image must contain CUDA 12.8, PyTorch, ComfyUI at the commit in
-`cog.yaml`, and the pinned Raylight custom node. A plain Gradio SDK image is not
+The deployment image must contain CUDA 12.8, PyTorch, ComfyUI v0.31.0 at the
+commit in `cog.yaml`, and the pinned Raylight custom node. A plain Gradio SDK
+image is not
 enough. `Dockerfile.modelscope` derives from the already baked REF2VA image so
 the four weights are not assembled again:
 

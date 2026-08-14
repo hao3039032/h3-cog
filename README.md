@@ -101,9 +101,10 @@ cog run \
 At least one reference input is required. `preview` produces a 480-pixel short
 edge and is the recommended default for latency-sensitive use.
 
-The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI commit
-`9a9fdb10ed144ce760d9682cb247526ea23cc525`, the native H3 implementation tested
-by this adapter. The published production image contains its model weights.
+The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI v0.31.0
+(`43cb4fffc89bba20ab7bd61467a36d0339338dab`), whose joint audio/video sampler
+contract matches Raylight's H3 distributed forward. The published production
+image contains its model weights.
 
 ## R2 model mirror
 

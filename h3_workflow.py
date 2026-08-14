@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import uuid
 
 from h3_tuning import CacheTuning
@@ -22,6 +23,26 @@ ASPECTS = {
     "21:9": (1344, 576),
 }
 SCALES = {"preview": 0.40, "balanced": 0.58, "native": 1.0}
+
+
+def _raylight_int(name: str, default: int) -> int:
+    value = os.getenv(name, str(default))
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise ValueError(f"{name} must be an integer") from error
+    if parsed < 0:
+        raise ValueError(f"{name} must be >= 0")
+    return parsed
+
+
+def _raylight_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name, str(default)).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
 
 
 def aligned_frames(seconds: float) -> int:
@@ -165,7 +186,12 @@ def build_raylight_workflow(
     reference_audio_names: list[str] | None = None,
     cache: CacheTuning | None = None,
 ) -> dict[str, dict]:
-    """Build Raylight's two-GPU FSDP2 + Ulysses H3 graph.
+    """Build a Raylight H3 graph with a configurable parallel topology.
+
+    H3 packs text, video, audio, and reference tokens into one sequence. The
+    default topology shards transformer weights with FSDP and splits that
+    sequence with Ulysses2. Setting Ulysses to zero selects pure FSDP as a
+    fallback topology.
 
     The CLIP and VAE stages remain ordinary ComfyUI nodes. Raylight owns only
     the large diffusion transformer and sampling loop, which lets two 24GB
@@ -181,17 +207,17 @@ def build_raylight_workflow(
             "inputs": {
                 "ray_cluster_address": "local",
                 "ray_cluster_namespace": "h3",
-                "GPU": 2,
-                "ulysses_degree": 2,
-                "ring_degree": 1,
-                "cfg_degree": 1,
-                "dp_degree": 1,
+                "GPU": _raylight_int("H3_RAYLIGHT_GPU", 2),
+                "ulysses_degree": _raylight_int("H3_RAYLIGHT_ULYSSES_DEGREE", 2),
+                "ring_degree": _raylight_int("H3_RAYLIGHT_RING_DEGREE", 1),
+                "cfg_degree": _raylight_int("H3_RAYLIGHT_CFG_DEGREE", 1),
+                "dp_degree": _raylight_int("H3_RAYLIGHT_DP_DEGREE", 1),
                 "sync_ulysses": False,
                 # Keep the sharded transformer warm between requests. Each
                 # 4090 retains only its FSDP shard, leaving room for decode.
                 "clear_vram_after_sampling": False,
-                "FSDP": True,
-                "FSDP_CPU_OFFLOAD": False,
+                "FSDP": _raylight_bool("H3_RAYLIGHT_FSDP", True),
+                "FSDP_CPU_OFFLOAD": _raylight_bool("H3_RAYLIGHT_FSDP_CPU_OFFLOAD", False),
                 "XFuser_attention": "TORCH_FLASH",
                 "skip_comm_test": False,
                 "use_mmap": True,

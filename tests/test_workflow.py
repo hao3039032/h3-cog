@@ -55,7 +55,7 @@ def test_reference_workflow_uses_ref2va_and_native_media_loaders():
     assert graph["5"]["inputs"]["ref_audios.ref_audio_1"] == ["18", 0]
 
 
-def test_raylight_workflow_shards_h3_across_two_4090s():
+def test_raylight_workflow_defaults_to_fsdp_and_ulysses2():
     graph = build_raylight_workflow(
         prompt="Use <Picture 1>.", width=480, height=864, frames=124,
         steps=20, seed=42, reference_image_names=["identity.png"],
@@ -65,6 +65,8 @@ def test_raylight_workflow_shards_h3_across_two_4090s():
     assert initializer["inputs"]["GPU"] == 2
     assert initializer["inputs"]["ulysses_degree"] == 2
     assert initializer["inputs"]["ring_degree"] == 1
+    assert initializer["inputs"]["cfg_degree"] == 1
+    assert initializer["inputs"]["dp_degree"] == 1
     assert initializer["inputs"]["FSDP"] is True
     assert initializer["inputs"]["FSDP_CPU_OFFLOAD"] is False
     assert initializer["inputs"]["use_mmap"] is True
@@ -76,6 +78,23 @@ def test_raylight_workflow_shards_h3_across_two_4090s():
     assert graph["10"]["inputs"]["noise_seed"] == 42
     assert graph["15"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
     assert graph["6"]["inputs"]["ref_images.ref_image_1"] == ["15", 0]
+
+
+def test_raylight_topology_is_configurable(monkeypatch):
+    monkeypatch.setenv("H3_RAYLIGHT_GPU", "2")
+    monkeypatch.setenv("H3_RAYLIGHT_ULYSSES_DEGREE", "0")
+    monkeypatch.setenv("H3_RAYLIGHT_RING_DEGREE", "0")
+    monkeypatch.setenv("H3_RAYLIGHT_CFG_DEGREE", "0")
+    monkeypatch.setenv("H3_RAYLIGHT_FSDP", "true")
+    graph = build_raylight_workflow(
+        prompt="p", width=480, height=864, frames=124,
+        steps=8, seed=1,
+    )
+    assert graph["1"]["inputs"]["GPU"] == 2
+    assert graph["1"]["inputs"]["ulysses_degree"] == 0
+    assert graph["1"]["inputs"]["ring_degree"] == 0
+    assert graph["1"]["inputs"]["cfg_degree"] == 0
+    assert graph["1"]["inputs"]["FSDP"] is True
 
 
 def test_raylight_easycache_uses_distributed_patch_node():

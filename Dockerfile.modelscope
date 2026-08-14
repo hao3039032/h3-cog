@@ -4,6 +4,11 @@
 ARG BASE_IMAGE=r8.im/hao3039032/minimax-h3:latest
 FROM ${BASE_IMAGE}
 
+RUN git -C /opt/ComfyUI fetch origin v0.31.0 \
+    && git -C /opt/ComfyUI checkout 43cb4fffc89bba20ab7bd61467a36d0339338dab \
+    && python -m pip install --break-system-packages --no-cache-dir \
+        -r /opt/ComfyUI/requirements.txt
+
 RUN git clone https://github.com/komikndr/raylight.git /opt/ComfyUI/custom_nodes/raylight \
     && git -C /opt/ComfyUI/custom_nodes/raylight checkout 9a7c33d52b3d35e29f75ecff3c227de987f0d4cf \
     && python -m pip install --break-system-packages --no-cache-dir \
