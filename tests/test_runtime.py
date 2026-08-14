@@ -59,6 +59,8 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
     monkeypatch.delenv("H3_RESERVE_VRAM_GB", raising=False)
     monkeypatch.setattr(h3_runtime, "_gpu_name", lambda: "NVIDIA L40S")
+    monkeypatch.setattr(h3_runtime, "_gpu_memory_gib", lambda: 48.0)
+    monkeypatch.setattr(h3_runtime, "_gpu_count", lambda: 1)
     command = h3_runtime._comfy_command()
     assert "--lowvram" not in command
     assert "--disable-dynamic-vram" not in command
@@ -71,6 +73,16 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     assert "--highvram" not in command
     assert "--disable-dynamic-vram" not in command
     assert command[command.index("--reserve-vram") + 1] == "3"
+
+
+def test_single_24gb_gpu_automatically_uses_safe_lowvram_mode(monkeypatch):
+    monkeypatch.delenv("H3_LOWVRAM", raising=False)
+    monkeypatch.setattr(h3_runtime, "_gpu_memory_gib", lambda: 24.0)
+    monkeypatch.setattr(h3_runtime, "_gpu_count", lambda: 1)
+    assert "--lowvram" in h3_runtime._comfy_command()
+
+    monkeypatch.setenv("H3_LOWVRAM", "0")
+    assert "--lowvram" not in h3_runtime._comfy_command()
 
 
 def test_sage_attention_is_limited_to_validated_h3_architectures(monkeypatch):
@@ -97,3 +109,17 @@ def test_sage_attention_is_limited_to_validated_h3_architectures(monkeypatch):
 
     FakeCuda.capability = (9, 0)
     assert h3_runtime._sage_attention_supported() is False
+
+
+def test_parallel_mode_auto_supports_one_or_two_4090s():
+    assert h3_runtime.select_parallel_mode("auto", gpu_count=1) == "single"
+    assert h3_runtime.select_parallel_mode("auto", gpu_count=2) == "raylight"
+    assert h3_runtime.select_parallel_mode("single", gpu_count=2) == "single"
+    assert h3_runtime.select_parallel_mode("fsdp", gpu_count=2) == "raylight"
+
+
+def test_explicit_raylight_rejects_a_single_4090():
+    import pytest
+
+    with pytest.raises(RuntimeError, match="requires 2 visible GPUs"):
+        h3_runtime.select_parallel_mode("raylight", gpu_count=1)

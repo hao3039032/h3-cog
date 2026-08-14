@@ -34,8 +34,8 @@ does not permit it.
 - Official `res_multistep` sampler and 20-step quality default; 12–16 steps and
   reduced pixel area are exposed for previews.
 - optional SageAttention when supplied by the image operator, with PyTorch
-  attention fallback and ComfyUI low-VRAM support
-  offloading, and persistent model processes for 32GB RTX 5090 workers.
+  attention fallback; one 24GB RTX 4090 uses ComfyUI low-VRAM offloading and
+  two 4090s use Raylight FSDP2 + Ulysses2.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
   fallback. Native audio is remuxed as Opus or AAC.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
@@ -79,6 +79,13 @@ Replicate image builds SageAttention for SM80 (A100) and SM89 (L40S). H100
 uses PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted
 H3 video during validation. Set `H3_LOWVRAM=1` only as an emergency fallback;
 `H3_RESERVE_VRAM_GB` defaults to `1.0`.
+
+On this branch, `H3_PARALLEL_MODE=auto` selects the native workflow for one
+visible GPU and Raylight for two or more. The distributed graph uses two GPUs,
+FSDP-shards the INT8 transformer, and splits its token sequence with Ulysses2;
+it does not enable FSDP CPU offload. A single 24GB GPU automatically adds
+ComfyUI's `--lowvram` flag for correctness. See [MODELSCOPE.md](MODELSCOPE.md)
+for the Gradio Studio entry point and deployment requirements.
 
 ## Local Cog usage
 
@@ -169,13 +176,14 @@ same-seed `off` baseline. Promote a profile only after visual review of motion,
 audio synchronization, first/last-frame alignment, and loop seam; no H3
 EasyCache speedup or quality claim is made before those GPU A/B results exist.
 
-## 5090 tuning and cost
+## 24GB GPU behavior and cost
 
 The pruned INT8 transformer is 20.97GB, NVFP4 Qwen encoder 15.69GB, visual VAE
-5.21GB, and audio VAE 0.61GB. They cannot all remain resident on a 32GB card;
-ComfyUI intentionally offloads between prompt encoding, denoising, and VAE
-decode. A worker therefore needs substantial system RAM and a persistent weight
-volume. Do not advertise a 24GB tier for this build.
+5.21GB, and audio VAE 0.61GB. They cannot all remain resident on a 24GB card;
+the single-4090 compatibility path intentionally offloads between prompt
+encoding, denoising, and VAE decode. It is a correctness fallback, not the
+latency target. A worker therefore needs at least 64GB system RAM and a
+persistent weight volume. Prefer the two-4090 Raylight path for production.
 
 Use preview/balanced for most requests, keep the process warm for bursts, and
 scale the worker to zero when idle. app.nz's H3 template publishes the final

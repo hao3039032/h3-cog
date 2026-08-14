@@ -150,3 +150,141 @@ def build_workflow(
         graph["5"]["inputs"][f"ref_audios.ref_audio_{index}"] = [node_id, 0]
         next_id += 1
     return graph
+
+
+def build_raylight_workflow(
+    *,
+    prompt: str,
+    width: int,
+    height: int,
+    frames: int,
+    steps: int,
+    seed: int,
+    reference_image_names: list[str] | None = None,
+    reference_video_names: list[str] | None = None,
+    reference_audio_names: list[str] | None = None,
+    cache: CacheTuning | None = None,
+) -> dict[str, dict]:
+    """Build Raylight's two-GPU FSDP2 + Ulysses H3 graph.
+
+    The CLIP and VAE stages remain ordinary ComfyUI nodes. Raylight owns only
+    the large diffusion transformer and sampling loop, which lets two 24GB
+    cards shard the model while still using the official H3 conditioning and
+    decode nodes.
+    """
+    reference_image_names = reference_image_names or []
+    reference_video_names = reference_video_names or []
+    reference_audio_names = reference_audio_names or []
+    graph: dict[str, dict] = {
+        "1": {
+            "class_type": "RayInitializer",
+            "inputs": {
+                "ray_cluster_address": "local",
+                "ray_cluster_namespace": "h3",
+                "GPU": 2,
+                "ulysses_degree": 2,
+                "ring_degree": 1,
+                "cfg_degree": 1,
+                "dp_degree": 1,
+                "sync_ulysses": False,
+                # Keep the sharded transformer warm between requests. Each
+                # 4090 retains only its FSDP shard, leaving room for decode.
+                "clear_vram_after_sampling": False,
+                "FSDP": True,
+                "FSDP_CPU_OFFLOAD": False,
+                "XFuser_attention": "TORCH_FLASH",
+                "skip_comm_test": False,
+                "use_mmap": True,
+            },
+        },
+        "2": {
+            "class_type": "RayUNETLoader",
+            "inputs": {
+                "unet_name": REFERENCE_MODEL,
+                "weight_dtype": "default",
+                "ray_actors_init": ["1", 0],
+            },
+        },
+        "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": TEXT_ENCODER, "type": "minimax", "device": "default"}},
+        "4": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE}},
+        "5": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
+        "6": {
+            "class_type": "MiniMaxH3ReferenceToVideo",
+            "inputs": {
+                "clip": ["3", 0],
+                "vae": ["4", 0],
+                "audio_vae": ["5", 0],
+                "prompt": prompt,
+                "width": int(width),
+                "height": int(height),
+                "length": int(frames),
+                "ref_image_size": "match",
+            },
+        },
+        "7": {"class_type": "RayBasicGuider", "inputs": {"ray_actors": ["2", 0], "conditioning": ["6", 0]}},
+        "8": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "res_multistep"}},
+        "9": {
+            "class_type": "RayBasicScheduler",
+            "inputs": {"ray_actors": ["2", 0], "scheduler": "simple", "steps": int(steps), "denoise": 1.0},
+        },
+        "10": {
+            "class_type": "XFuserSamplerCustomAdvanced",
+            "inputs": {
+                "add_noise": True,
+                "noise_seed": int(seed),
+                "guider": ["7", 0],
+                "sampler": ["8", 0],
+                "sigmas": ["9", 0],
+                "latent_image": ["6", 1],
+            },
+        },
+        "11": {"class_type": "VAEDecode", "inputs": {"samples": ["10", 0], "vae": ["4", 0]}},
+        "12": {"class_type": "VAEDecodeAudio", "inputs": {"samples": ["10", 0], "vae": ["5", 0]}},
+        "13": {"class_type": "CreateVideo", "inputs": {"images": ["11", 0], "audio": ["12", 0], "fps": 24.0, "bit_depth": 8}},
+        "14": {
+            "class_type": "SaveVideo",
+            "inputs": {
+                "video": ["13", 0],
+                "filename_prefix": f"h3/raw-{uuid.uuid4().hex}",
+                "format": "mp4",
+                "codec": "h264",
+                "codec.encoding": "re-encode",
+                "codec.encoding.crf": 17.0,
+            },
+        },
+    }
+    next_id = 15
+    if cache is not None:
+        graph[str(next_id)] = {
+            "class_type": "RayEasyCache",
+            "inputs": {
+                "ray_actors": ["2", 0],
+                "reuse_threshold": cache.reuse_threshold,
+                "start_percent": cache.start_percent,
+                "end_percent": cache.end_percent,
+                "verbose": cache.verbose,
+                "distributed_sync": True,
+            },
+        }
+        graph["7"]["inputs"]["ray_actors"] = [str(next_id), 0]
+        graph["9"]["inputs"]["ray_actors"] = [str(next_id), 0]
+        next_id += 1
+    for index, name in enumerate(reference_image_names, 1):
+        node_id = str(next_id)
+        graph[node_id] = {"class_type": "LoadImage", "inputs": {"image": name}}
+        graph["6"]["inputs"][f"ref_images.ref_image_{index}"] = [node_id, 0]
+        next_id += 1
+    for index, name in enumerate(reference_video_names, 1):
+        load_id = str(next_id)
+        components_id = str(next_id + 1)
+        graph[load_id] = {"class_type": "LoadVideo", "inputs": {"file": name}}
+        graph[components_id] = {"class_type": "GetVideoComponents", "inputs": {"video": [load_id, 0]}}
+        graph["6"]["inputs"][f"ref_videos.ref_video_{index}"] = [components_id, 0]
+        graph["6"]["inputs"][f"ref_video_audios.ref_video_audio_{index}"] = [components_id, 1]
+        next_id += 2
+    for index, name in enumerate(reference_audio_names, 1):
+        node_id = str(next_id)
+        graph[node_id] = {"class_type": "LoadAudio", "inputs": {"audio": name}}
+        graph["6"]["inputs"][f"ref_audios.ref_audio_{index}"] = [node_id, 0]
+        next_id += 1
+    return graph

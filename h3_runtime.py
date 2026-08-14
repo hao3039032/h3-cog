@@ -20,7 +20,7 @@ from pathlib import Path
 from h3_media import encode_video
 from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
-from h3_workflow import aligned_frames, build_workflow, dimensions, validate_inputs
+from h3_workflow import aligned_frames, build_raylight_workflow, build_workflow, dimensions, validate_inputs
 from weights import COMFY_ROOT, ensure_reference_weight, ensure_weights
 
 COMFY_URL = "http://127.0.0.1:8188"
@@ -67,7 +67,7 @@ def _comfy_command() -> list[str]:
         "--disable-metadata",
         "--reserve-vram", os.getenv("H3_RESERVE_VRAM_GB", "1.0"),
     ]
-    if _env_enabled("H3_LOWVRAM"):
+    if _use_lowvram():
         command.append("--lowvram")
     return command
 
@@ -86,6 +86,59 @@ def _gpu_name() -> str:
     except Exception:
         pass
     return "unknown"
+
+
+def _gpu_count() -> int:
+    """Return the number of visible CUDA devices without making startup fatal."""
+    try:
+        import torch
+
+        return torch.cuda.device_count() if torch.cuda.is_available() else 0
+    except Exception:
+        return 0
+
+
+def _gpu_memory_gib() -> float | None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return torch.cuda.get_device_properties(0).total_memory / 2**30
+    except Exception:
+        pass
+    return None
+
+
+def _use_lowvram() -> bool:
+    """Make a 24GB single-card worker safe while retaining an override."""
+    configured = os.getenv("H3_LOWVRAM")
+    if configured is not None:
+        return configured.lower() in {"1", "true", "yes"}
+    memory_gib = _gpu_memory_gib()
+    return _gpu_count() == 1 and memory_gib is not None and memory_gib < 28
+
+
+def select_parallel_mode(requested: str | None = None, gpu_count: int | None = None) -> str:
+    """Select native single-GPU execution or Raylight's two-GPU path."""
+    requested = (requested or os.getenv("H3_PARALLEL_MODE", "auto")).strip().lower()
+    aliases = {"native": "single", "dual": "raylight", "fsdp": "raylight"}
+    requested = aliases.get(requested, requested)
+    if requested not in {"auto", "single", "raylight"}:
+        raise ValueError("H3_PARALLEL_MODE must be auto, single, or raylight")
+    gpu_count = _gpu_count() if gpu_count is None else int(gpu_count)
+    if requested == "auto":
+        return "raylight" if gpu_count >= 2 else "single"
+    if requested == "raylight" and gpu_count < 2:
+        raise RuntimeError(f"Raylight mode requires 2 visible GPUs; found {gpu_count}")
+    return requested
+
+
+def _raylight_nodes_available() -> bool:
+    required = ("RayInitializer", "RayUNETLoader", "RayBasicGuider", "RayBasicScheduler", "XFuserSamplerCustomAdvanced")
+    try:
+        return all(node in _json_request("/object_info/" + urllib.parse.quote(node), timeout=10) for node in required)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return False
 
 
 def _sage_attention_supported() -> bool:
@@ -110,7 +163,17 @@ class H3Runtime:
     def __init__(self) -> None:
         ensure_weights()
         ensure_reference_weight()
+        requested_mode = os.getenv("H3_PARALLEL_MODE", "auto").strip().lower()
+        self.parallel_mode = select_parallel_mode(requested_mode)
         self.process = self._start_comfy()
+        if self.parallel_mode == "raylight" and not _raylight_nodes_available():
+            if requested_mode == "auto":
+                print("Raylight nodes unavailable; falling back to native single-GPU workflow", flush=True)
+                self.parallel_mode = "single"
+            else:
+                self.process.terminate()
+                raise RuntimeError("H3_PARALLEL_MODE=raylight but the required Raylight ComfyUI nodes did not load")
+        print(f"H3 execution backend: mode={self.parallel_mode} visible_gpus={_gpu_count()}", flush=True)
 
     def _start_comfy(self) -> subprocess.Popen:
         command = _comfy_command()
@@ -232,7 +295,8 @@ class H3Runtime:
         reference_image_names = [self._stage_media(path, "ref-image", i) for i, path in enumerate(reference_images, 1)]
         reference_video_names = [self._stage_media(path, "ref-video", i) for i, path in enumerate(reference_videos, 1)]
         reference_audio_names = [self._stage_media(path, "ref-audio", i) for i, path in enumerate(reference_audios, 1)]
-        graph = build_workflow(
+        workflow_builder = build_raylight_workflow if getattr(self, "parallel_mode", "single") == "raylight" else build_workflow
+        graph = workflow_builder(
             prompt=formatted,
             width=width,
             height=height,
@@ -272,7 +336,8 @@ class H3Runtime:
                     total_seconds = time.monotonic() - total_started
                     print(
                         f"generated {width}x{height} frames={frames} seconds={actual_seconds:.2f} "
-                        f"steps={steps} seed={seed} mode=ref2va total_seconds={total_seconds:.3f} "
+                        f"steps={steps} seed={seed} mode=ref2va backend={getattr(self, 'parallel_mode', 'single')} "
+                        f"total_seconds={total_seconds:.3f} "
                         f"cache={cache.profile if cache is not None else 'off'}",
                         flush=True,
                     )

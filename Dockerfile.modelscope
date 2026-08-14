@@ -1,0 +1,23 @@
+# The currently published REF2VA image already contains the four verified
+# weights, CUDA/PyTorch, pinned ComfyUI, and the validated SM89 SageAttention
+# kernel. Deriving from it avoids another 116GB image assembly in the Studio.
+ARG BASE_IMAGE=r8.im/hao3039032/minimax-h3:latest
+FROM ${BASE_IMAGE}
+
+RUN git clone https://github.com/komikndr/raylight.git /opt/ComfyUI/custom_nodes/raylight \
+    && git -C /opt/ComfyUI/custom_nodes/raylight checkout 9a7c33d52b3d35e29f75ecff3c227de987f0d4cf \
+    && python -m pip install --break-system-packages --no-cache-dir \
+        'ray>=2.48,<3' 'xfuser>=0.4.4,<0.6' kernels huggingface_hub hf_transfer \
+        'gradio>=6.24,<7' 'cryptography<46' \
+    && python -m pip install --break-system-packages --no-cache-dir --no-deps \
+        -e /opt/ComfyUI/custom_nodes/raylight
+
+COPY . /src
+WORKDIR /src
+
+ENV H3_PARALLEL_MODE=auto \
+    H3_BAKED_WEIGHTS_VERIFIED=1 \
+    PORT=7860
+
+EXPOSE 7860
+CMD ["python", "-u", "/src/app.py"]
