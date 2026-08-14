@@ -45,10 +45,11 @@ attention will follow. The public path does not apply a lossy cache. Operator
 sweeps can use ComfyUI's built-in EasyCache behind a short-lived signed
 envelope, described below. We do not apply CG-Taylor or a "latent teleport"
 cache: neither has been validated as an H3-compatible node against its joint
-audio/video latent stream and first/last-frame fidelity. SageAttention remains
-an opt-in acceleration path because its current Blackwell build is not
-distributed on the configured Python index; the adapter leaves room for the
-upstream sparse-attention release.
+audio/video latent stream and first/last-frame fidelity. SageAttention is
+compiled from a pinned source build for SM80, SM89, and SM120; SM120 requires
+CUDA 12.8 or newer. It is usable on RTX 6000 D / RTX PRO 6000-class Blackwell
+cards, but its H3 visual output still needs a same-seed comparison before
+treating it as a quality-neutral default for production traffic.
 
 ## Inputs
 
@@ -74,11 +75,11 @@ frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
 On a 48GB L40S, ComfyUI uses its default DynamicVRAM path, which measured about
 7% faster than estimate-based loading on the same 480x864, 362-frame workload.
 The same DynamicVRAM policy is used on 80GB A100 and H100 workers so hardware
-comparisons do not also change memory-management strategy. The published
-Replicate image builds SageAttention for SM80 (A100) and SM89 (L40S). H100
-uses PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted
-H3 video during validation. Set `H3_LOWVRAM=1` only as an emergency fallback;
-`H3_RESERVE_VRAM_GB` defaults to `1.0`.
+comparisons do not also change memory-management strategy. The Cog image builds
+SageAttention for SM80, SM89, and SM120. H100 uses PyTorch SDPA because the
+SM90 FP8 SageAttention path produced corrupted H3 video during validation. Set
+`H3_LOWVRAM=1` only as an emergency fallback; `H3_RESERVE_VRAM_GB` defaults to
+`1.0`.
 
 The runtime defaults to `H3_PARALLEL_MODE=single`. A 48GB or larger card uses
 normal DynamicVRAM; a single 24GB GPU automatically adds ComfyUI's `--lowvram`

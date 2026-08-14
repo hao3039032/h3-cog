@@ -85,7 +85,7 @@ def test_single_24gb_gpu_automatically_uses_safe_lowvram_mode(monkeypatch):
     assert "--lowvram" not in h3_runtime._comfy_command()
 
 
-def test_sage_attention_is_limited_to_validated_h3_architectures(monkeypatch):
+def test_sage_attention_covers_sm80_sm89_sm120_and_rejects_sm90(monkeypatch):
     class FakeCuda:
         available = True
         capability = (8, 9)
@@ -105,6 +105,9 @@ def test_sage_attention_is_limited_to_validated_h3_architectures(monkeypatch):
     assert h3_runtime._sage_attention_supported() is True
 
     FakeCuda.capability = (8, 0)
+    assert h3_runtime._sage_attention_supported() is True
+
+    FakeCuda.capability = (12, 0)
     assert h3_runtime._sage_attention_supported() is True
 
     FakeCuda.capability = (9, 0)

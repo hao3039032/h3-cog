@@ -25,5 +25,5 @@ build:
     - "git clone https://github.com/komikndr/raylight.git /opt/ComfyUI/custom_nodes/raylight && git -C /opt/ComfyUI/custom_nodes/raylight checkout 9a7c33d52b3d35e29f75ecff3c227de987f0d4cf"
     - "python -m pip install --break-system-packages --no-cache-dir 'ray>=2.48,<3' 'xfuser>=0.4.4,<0.6' kernels huggingface_hub hf_transfer 'gradio>=6.24,<7' 'cryptography<46'"
     - "python -m pip install --break-system-packages --no-cache-dir --no-deps -e /opt/ComfyUI/custom_nodes/raylight"
-    - "TORCH_CUDA_ARCH_LIST=8.9 MAX_JOBS=4 python -m pip install --break-system-packages --no-cache-dir --no-build-isolation git+https://github.com/thu-ml/SageAttention.git@eb615cf6cf4d221338033340ee2de1c37fbdba4a"
+    - "TORCH_CUDA_ARCH_LIST='8.0;8.9;12.0' MAX_JOBS=4 python -m pip install --break-system-packages --no-cache-dir --no-build-isolation git+https://github.com/thu-ml/SageAttention.git@eb615cf6cf4d221338033340ee2de1c37fbdba4a"
 run: "predict.py:Runner"

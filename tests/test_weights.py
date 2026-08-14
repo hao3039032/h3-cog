@@ -84,4 +84,12 @@ def test_weight_installer_never_requests_a_manifest(monkeypatch, tmp_path):
     monkeypatch.setattr(weights.urllib.request, "urlopen", blocked)
     installed = weights.ensure_weights()
     assert set(installed) == set(weights.FILES)
-    assert [url for url, *_ in downloaded] == [weights.VERIFIED_WEIGHTS[path]["url"] for path in weights.FILES]
+    expected = {
+        path: entry["url"]
+        for path, entry in weights.VERIFIED_WEIGHTS.items()
+        if path in weights.FILES
+    }
+    assert {
+        destination.relative_to(tmp_path / "MiniMax-H3").as_posix(): url
+        for url, destination, *_ in downloaded
+    } == expected

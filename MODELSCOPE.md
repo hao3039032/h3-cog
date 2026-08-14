@@ -21,6 +21,10 @@ MP4/H.264, and one generation at a time.
 Set `H3_LOWVRAM=0` only to experiment with normal DynamicVRAM on a 24GB card;
 the safe automatic default is low-VRAM mode. GPUs with at least 28GB keep the
 existing normal DynamicVRAM policy unless `H3_LOWVRAM=1` is explicitly set.
+The Studio image rebuilds SageAttention for SM80, SM89, and SM120. SM120 needs
+CUDA toolkit 12.8 or newer. On an SM120 RTX 6000 D / RTX PRO 6000-class card,
+compare SageAttention against PyTorch SDPA with the same seed before promoting
+accelerated output.
 
 ## Gradio Studio entry point
 
@@ -69,3 +73,15 @@ The platform invokes `/etc/autodl.sh` through its `customer-cmd` supervisor
 program. The wrapper runs the Gradio service on port 6006 and forwards stops to
 the ComfyUI/Ray process group so lazy-started workers cannot outlive a service
 restart.
+
+For a bare-metal SM120 host with CUDA toolkit 12.8 or newer, build only the
+local architecture:
+
+```sh
+TORCH_CUDA_ARCH_LIST='12.0' python -m pip install --no-build-isolation \
+  --force-reinstall --no-deps \
+  git+https://github.com/thu-ml/SageAttention.git@eb615cf6cf4d221338033340ee2de1c37fbdba4a
+```
+
+The startup log should say `attention=sageattention`; if the extension is
+absent, the runtime safely falls back to `pytorch-sdpa`.

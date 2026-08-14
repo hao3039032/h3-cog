@@ -142,12 +142,12 @@ def _raylight_nodes_available() -> bool:
 
 
 def _sage_attention_supported() -> bool:
-    """Only enable SageAttention on architectures validated for H3 output."""
+    """Only enable SageAttention on architectures built into the operator image."""
     try:
         import torch
 
         if torch.cuda.is_available():
-            return torch.cuda.get_device_capability(0) in {(8, 0), (8, 9)}
+            return torch.cuda.get_device_capability(0) in {(8, 0), (8, 9), (12, 0)}
     except Exception:
         pass
     return False
@@ -163,7 +163,7 @@ class H3Runtime:
     def __init__(self) -> None:
         ensure_weights()
         ensure_reference_weight()
-        requested_mode = os.getenv("H3_PARALLEL_MODE", "auto").strip().lower()
+        requested_mode = os.getenv("H3_PARALLEL_MODE", "single").strip().lower()
         self.parallel_mode = select_parallel_mode(requested_mode)
         self.process = self._start_comfy()
         if self.parallel_mode == "raylight" and not _raylight_nodes_available():
