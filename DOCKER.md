@@ -39,9 +39,9 @@ ModelScope downloads, SHA-256 verification, and linking into ComfyUI. Set
 `H3_BAKED_WEIGHTS_VERIFIED=1` only for a separate image whose verified weights
 are baked into immutable layers.
 
-SageAttention is compiled for SM120 by default, matching the currently
-validated GPU class. To build a multi-architecture test image, set
-`SAGE_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0;12.0` before building. Runtime still
+SageAttention is compiled for SM89 and SM120 by default, covering Ada GPUs
+such as RTX 4090 and Blackwell consumer/workstation GPUs. Build with a
+different `SAGE_CUDA_ARCH_LIST` for other supported targets. Runtime still
 selects PyTorch SDPA on unsupported configurations, including the known SM90
 H3 corruption path.
 

@@ -7,7 +7,7 @@ FROM ${PYTHON_IMAGE}
 ARG COMFYUI_VERSION=v0.31.0
 ARG COMFYUI_COMMIT=43cb4fffc89bba20ab7bd61467a36d0339338dab
 ARG SAGEATTENTION_COMMIT=eb615cf6cf4d221338033340ee2de1c37fbdba4a
-ARG SAGE_CUDA_ARCH_LIST=12.0
+ARG SAGE_CUDA_ARCH_LIST=8.9;12.0
 ARG MAX_JOBS=4
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -40,7 +40,8 @@ RUN python -m pip install -c /tmp/constraints.txt \
 # Torch's runtime toolkit omits the compiler. These versions match its CUDA
 # 13.0.88 components and permit a GPU-free SageAttention build.
 RUN python -m pip install \
-    'nvidia-cuda-nvcc==13.0.88' \
+    'ninja==1.13.0' \
+        'nvidia-cuda-nvcc==13.0.88' \
     'nvidia-cuda-crt==13.0.88' \
     'nvidia-cuda-cccl==13.0.85' \
     'nvidia-nvvm==13.0.88'

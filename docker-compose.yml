@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        SAGE_CUDA_ARCH_LIST: "${SAGE_CUDA_ARCH_LIST:-12.0}"
+        SAGE_CUDA_ARCH_LIST: "${SAGE_CUDA_ARCH_LIST:-8.9;12.0}"
         MAX_JOBS: "${MAX_JOBS:-4}"
     image: "${H3_GRADIO_IMAGE:-h3-gradio:latest}"
     restart: unless-stopped
