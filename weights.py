@@ -87,11 +87,6 @@ def license_accepted() -> bool:
     return os.getenv("MINIMAX_H3_LICENSE_ACCEPTED", "").lower() in {"1", "true", "yes"}
 
 
-def baked_weights_verified() -> bool:
-    """Trust weights stored in immutable, content-addressed image layers."""
-    return os.getenv("H3_BAKED_WEIGHTS_VERIFIED", "").lower() in {"1", "true", "yes"}
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -175,8 +170,6 @@ def ensure_weights(workers: int = 4) -> dict[str, Path]:
             expected_size = int(entry["size"])
             expected_sha = str(entry.get("sha256", ""))
             valid = destination.exists() and destination.stat().st_size == expected_size
-            if valid and expected_sha and not baked_weights_verified():
-                valid = _sha256(destination) == expected_sha
             if not valid:
                 _download(
                     entry["url"],
@@ -207,8 +200,6 @@ def ensure_reference_weight() -> Path:
         fcntl.flock(lock, fcntl.LOCK_EX)
         entry = VERIFIED_WEIGHTS[REF2VA_RELATIVE]
         valid = destination.exists() and destination.stat().st_size == int(entry["size"])
-        if valid and not baked_weights_verified():
-            valid = _sha256(destination) == entry["sha256"]
         if not valid:
             _download(entry["url"], destination, int(entry["size"]), entry["sha256"])
         _install_link(destination, "diffusion_models")

@@ -116,3 +116,21 @@ def test_weight_installer_never_requests_a_manifest(monkeypatch, tmp_path):
         destination.relative_to(tmp_path / "MiniMax-H3").as_posix(): url
         for url, destination, *_ in downloaded
     } == expected
+
+
+def test_installed_weights_are_trusted_on_later_starts(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+
+    for relative in weights._selected_files():
+        destination = tmp_path / "MiniMax-H3" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("wb") as handle:
+            handle.truncate(weights.VERIFIED_WEIGHTS[relative]["size"])
+
+    def blocked(*_args, **_kwargs):
+        raise AssertionError("installed cache was re-downloaded")
+
+    monkeypatch.setattr(weights, "_download", blocked)
+    assert set(weights.ensure_weights()) == set(weights._selected_files())

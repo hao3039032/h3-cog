@@ -59,9 +59,8 @@ Publish it to a registry ModelScope can pull, expose port 7860, and give the
 container all selected GPUs plus adequate shared memory. The separate
 `cog.yaml` remains available when a Cog/Replicate-compatible image is needed.
 
-For scale-to-zero, bake the four verified REF2VA files into the image and set
-`H3_BAKED_WEIGHTS_VERIFIED=1`; otherwise preserve `WEIGHTS_DIR` on a persistent
-volume. Without either option, every cold worker must download roughly 59.13GB.
+For scale-to-zero, preserve `WEIGHTS_DIR` on a persistent volume. Otherwise
+every cold worker must download roughly 59.13GB.
 Set `H3_VIDEO_VAE_PRECISION=fp16` only for a storage-constrained comparison
 worker. The runtime downloads the deterministic Comfy-native FP32 artifact from
 `Austusm/minimax_h3_video_vae` (`10,415,548,688` bytes, SHA-256

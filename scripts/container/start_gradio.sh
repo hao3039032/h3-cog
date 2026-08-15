@@ -5,7 +5,6 @@ export PORT="${PORT:-7860}"
 export COMFY_ROOT="${COMFY_ROOT:-/opt/ComfyUI}"
 export WEIGHTS_DIR="${WEIGHTS_DIR:-/weights}"
 export H3_PARALLEL_MODE="${H3_PARALLEL_MODE:-single}"
-export H3_BAKED_WEIGHTS_VERIFIED="${H3_BAKED_WEIGHTS_VERIFIED:-0}"
 python_bin="$(command -v "${PYTHON_BIN:-python}")"
 
 mkdir -p "$WEIGHTS_DIR" "$COMFY_ROOT/input" "$COMFY_ROOT/output" /tmp/gradio

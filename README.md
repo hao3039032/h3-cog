@@ -131,11 +131,10 @@ The FP32 video VAE is the deterministic Comfy-native repack published at
 and appends the two `[24]` latent normalization buffers expected by ComfyUI;
 the runtime enables `--fp32-vae`. Set `H3_VIDEO_VAE_PRECISION=fp16` to fall
 back to the smaller conversion for capacity-constrained workers. All selected
-weights are pinned to ModelScope. Development images resume downloads,
-verify exact size and SHA-256, and link the cache into ComfyUI. A
-production image sets `H3_BAKED_WEIGHTS_VERIFIED=1` after verifying its
-immutable layers, so startup checks sizes without network access or a full
-SHA-256 pass.
+weights are pinned to ModelScope. New downloads resume and verify exact size
+and SHA-256 before being linked into ComfyUI; an already installed cache is
+trusted by size on subsequent starts, so cold starts do not re-read tens of
+gigabytes just to repeat a hash.
 
 Each entry includes its exact source URL, size, and SHA-256. No remote manifest
 request is made before installation or startup.

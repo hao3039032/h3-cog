@@ -25,8 +25,7 @@ RUN git clone https://github.com/komikndr/raylight.git /opt/ComfyUI/custom_nodes
 COPY . /src
 WORKDIR /src
 
-ENV H3_PARALLEL_MODE=single \
-    H3_BAKED_WEIGHTS_VERIFIED=1
+ENV H3_PARALLEL_MODE=single
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["python", "-m", "cog.server.http"]
