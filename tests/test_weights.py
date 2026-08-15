@@ -1,6 +1,4 @@
-import hashlib
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -13,38 +11,14 @@ def test_license_acceptance_is_explicit(monkeypatch):
         weights.ensure_weights()
 
 
-def test_download_checks_size_sha_and_resumes(tmp_path):
-    payload = b"verified-h3-weight" * 1024
+def test_missing_weights_fail_with_explicit_paths(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            start = int(self.headers.get("Range", "bytes=0-").split("=")[1].split("-")[0])
-            body = payload[start:]
-            self.send_response(206 if start else 200)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *_):
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        target = tmp_path / "model.safetensors"
-        partial = target.with_suffix(target.suffix + ".part")
-        partial.write_bytes(payload[:37])
-        weights._download(
-            f"http://127.0.0.1:{server.server_port}/model",
-            target,
-            len(payload),
-            hashlib.sha256(payload).hexdigest(),
-        )
-        assert target.read_bytes() == payload
-        assert not partial.exists()
-    finally:
-        server.shutdown()
+    with pytest.raises(FileNotFoundError, match="Required MiniMax H3 weights are missing") as error:
+        weights.ensure_weights()
+    for relative in weights._selected_files():
+        assert relative in str(error.value)
 
 
 def test_reference_weight_metadata_matches_verified_source():
@@ -91,46 +65,26 @@ def test_fp32_video_vae_uses_repackaged_modelscope_source_by_default(monkeypatch
         weights.video_vae_precision()
 
 
-def test_weight_installer_never_requests_a_manifest(monkeypatch, tmp_path):
-    def blocked(*args, **kwargs):
-        raise AssertionError("weight installation must use pinned source URLs")
-
-    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
-    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
-    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
-    downloaded = []
-    monkeypatch.setattr(
-        weights,
-        "_download",
-        lambda url, destination, size, sha256: downloaded.append((url, destination, size, sha256)),
-    )
-    monkeypatch.setattr(weights.urllib.request, "urlopen", blocked)
-    installed = weights.ensure_weights()
-    assert set(installed) == set(weights._selected_files())
-    expected = {
-        path: entry["url"]
-        for path, entry in weights.VERIFIED_WEIGHTS.items()
-        if path in weights._selected_files()
-    }
-    assert {
-        destination.relative_to(tmp_path / "MiniMax-H3").as_posix(): url
-        for url, destination, *_ in downloaded
-    } == expected
-
-
-def test_installed_weights_are_trusted_on_later_starts(monkeypatch, tmp_path):
+def test_existing_weights_are_linked_without_validation(monkeypatch, tmp_path):
     monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
     monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
     monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
 
-    for relative in weights._selected_files():
+    for relative, folder in weights._selected_files().items():
         destination = tmp_path / "MiniMax-H3" / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with destination.open("wb") as handle:
-            handle.truncate(weights.VERIFIED_WEIGHTS[relative]["size"])
+        destination.write_bytes(b"operational-data")
 
-    def blocked(*_args, **_kwargs):
-        raise AssertionError("installed cache was re-downloaded")
+    installed = weights.ensure_weights()
+    assert set(installed) == set(weights._selected_files())
+    for relative, folder in weights._selected_files().items():
+        target = tmp_path / "comfy" / "models" / folder / Path(relative).name
+        assert target.resolve() == installed[relative].resolve()
 
-    monkeypatch.setattr(weights, "_download", blocked)
-    assert set(weights.ensure_weights()) == set(weights._selected_files())
+
+def test_missing_reference_weight_fails_with_explicit_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+
+    with pytest.raises(FileNotFoundError, match=weights.REF2VA_RELATIVE):
+        weights.ensure_reference_weight()

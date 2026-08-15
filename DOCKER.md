@@ -35,9 +35,9 @@ to listen on a different socket.
 
 The four INT8/REF2VA weights are not baked into this portable image. The
 default FP32 visual VAE brings the selected set to about 59.13GB; mount at
-least 62GB of persistent storage at `/weights`; the app performs resumable
-ModelScope downloads, SHA-256 verification, and linking into ComfyUI.
-Installed cache files are trusted by size on later starts.
+least 62GB of persistent storage at `/weights` and provision the files listed
+in the README before startup. The app links those files into ComfyUI and
+consumes them as-is; missing files fail startup with their full paths.
 
 Set `H3_VIDEO_VAE_PRECISION=fp16` to use the 5.21GB visual VAE instead. This
 is useful on storage-constrained workers, but it intentionally gives up the

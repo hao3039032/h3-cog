@@ -2,9 +2,9 @@
 
 MiniMax H3 reference-to-video in a portable [Cog](https://github.com/replicate/cog).
 This deployment intentionally uses only REF2VA: one or more reference images,
-videos, or audio clips are required. The production image bakes the transformer,
-text encoder, and both VAEs so a scale-to-zero cold start does not download
-weights, fetch a manifest, or hash tens of gigabytes.
+videos, or audio clips are required. The runtime expects all model files to be
+provisioned externally; missing paths fail startup instead of triggering network
+downloads or integrity scans.
 
 [![Deploy H3 on app.nz](https://app.nz/deploy-button.svg)](https://app.nz/deploy?template=minimax-h3)
 
@@ -16,7 +16,7 @@ which currently defines an applicable territory that excludes the United
 States, European Union, United Kingdom, Republic of Korea, and other uses in its
 acceptable-use policy. Review the current upstream terms with your counsel.
 
-The runtime refuses to download weights until the deployer explicitly sets:
+The deployer must explicitly acknowledge the weight license before running:
 
 ```sh
 MINIMAX_H3_LICENSE_ACCEPTED=1
@@ -131,13 +131,12 @@ The FP32 video VAE is the deterministic Comfy-native repack published at
 and appends the two `[24]` latent normalization buffers expected by ComfyUI;
 the runtime enables `--fp32-vae`. Set `H3_VIDEO_VAE_PRECISION=fp16` to fall
 back to the smaller conversion for capacity-constrained workers. All selected
-weights are pinned to ModelScope. New downloads resume and verify exact size
-and SHA-256 before being linked into ComfyUI; an already installed cache is
-trusted by size on subsequent starts, so cold starts do not re-read tens of
-gigabytes just to repeat a hash.
+weights are pinned to ModelScope. Provision them under
+`${WEIGHTS_DIR}/MiniMax-H3` before startup; the runtime links existing files
+into ComfyUI and consumes them as-is.
 
-Each entry includes its exact source URL, size, and SHA-256. No remote manifest
-request is made before installation or startup.
+Each entry includes its exact source URL, size, and SHA-256 for deployment-side
+provisioning and verification. The runtime makes no weight-network requests.
 
 ## RunPod Serverless
 
@@ -150,8 +149,8 @@ python -u /src/rp_handler.py
 The handler accepts Cog-compatible reference URL lists and `reference_*_urls`
 aliases. It rejects private/reserved network targets, caps each file at 512MiB, and
 returns a bounded base64 media output compatible with app.nz's Cog serverless
-shim. Set minimum workers to zero. A persistent network volume avoids
-re-downloading the 59.13GB model on cold workers.
+shim. Set minimum workers to zero. A persistent network volume must already
+contain the 59.13GB model set.
 
 ### Authenticated acceleration sweeps
 
@@ -209,7 +208,7 @@ cog build -t h3-cog:local
 
 Unit tests cover the H3 frame grid, native dimensions, official keyframe prompt
 prefixes, workflow graph, GPU/CPU encoder fallback, explicit license gate, and
-resumable SHA-verified downloads. A real GPU smoke test additionally requires
+externally provisioned weight paths. A real GPU smoke test additionally requires
 the accepted model license, 54GB of weights, a 48GB CUDA GPU, and enough host
 RAM.
 

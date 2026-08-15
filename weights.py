@@ -1,13 +1,8 @@
-"""Verified ModelScope MiniMax H3 weight installation for ComfyUI."""
+"""Model paths for externally provisioned MiniMax H3 weights."""
 
 from __future__ import annotations
 
-import fcntl
-import hashlib
 import os
-import time
-import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
@@ -87,57 +82,6 @@ def license_accepted() -> bool:
     return os.getenv("MINIMAX_H3_LICENSE_ACCEPTED", "").lower() in {"1", "true", "yes"}
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _download(url: str, destination: Path, expected_size: int, expected_sha: str, retries: int = 3) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_suffix(destination.suffix + ".part")
-    for attempt in range(retries):
-        try:
-            have = partial.stat().st_size if partial.exists() else 0
-            if have > expected_size:
-                partial.unlink()
-                have = 0
-            headers = {"User-Agent": "appnz-h3-cog/0.1"}
-            if have:
-                headers["Range"] = f"bytes={have}-"
-            request = urllib.request.Request(url, headers=headers)
-            print(
-                f"Downloading {destination.name}: {have / 1e9:.2f}/{expected_size / 1e9:.2f} GB",
-                flush=True,
-            )
-            with urllib.request.urlopen(request, timeout=180) as response:
-                append = have > 0 and response.status == 206
-                with partial.open("ab" if append else "wb") as handle:
-                    reported = have
-                    for chunk in iter(lambda: response.read(8 << 20), b""):
-                        handle.write(chunk)
-                        current = handle.tell()
-                        if current - reported >= 1_000_000_000:
-                            reported = current
-                            print(
-                                f"Downloading {destination.name}: "
-                                f"{current / 1e9:.2f}/{expected_size / 1e9:.2f} GB",
-                                flush=True,
-                            )
-            if partial.stat().st_size != expected_size:
-                raise IOError(f"size mismatch for {destination.name}")
-            if expected_sha and _sha256(partial) != expected_sha:
-                raise IOError(f"sha256 mismatch for {destination.name}")
-            partial.replace(destination)
-            return
-        except Exception:
-            if attempt + 1 == retries:
-                raise
-            time.sleep(1.5 * (attempt + 1))
-
-
 def _install_link(source: Path, folder: str) -> None:
     target = COMFY_ROOT / "models" / folder / source.name
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -148,59 +92,38 @@ def _install_link(source: Path, folder: str) -> None:
     target.symlink_to(source)
 
 
-def ensure_weights(workers: int = 4) -> dict[str, Path]:
+def ensure_weights() -> dict[str, Path]:
     if not license_accepted():
         raise RuntimeError(
             "Set MINIMAX_H3_LICENSE_ACCEPTED=1 only after reviewing and accepting "
             "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE"
         )
     root = weights_root() / "MiniMax-H3"
-    root.mkdir(parents=True, exist_ok=True)
-    lock_path = root / ".download.lock"
-    with lock_path.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        manifest = VERIFIED_WEIGHTS
-        files = _selected_files()
-
-        def fetch(relative: str) -> tuple[str, Path]:
-            entry = manifest.get(relative)
-            if not entry:
-                raise RuntimeError(f"verified weight manifest is missing {relative}")
-            destination = root / relative
-            expected_size = int(entry["size"])
-            expected_sha = str(entry.get("sha256", ""))
-            valid = destination.exists() and destination.stat().st_size == expected_size
-            if not valid:
-                _download(
-                    entry["url"],
-                    destination,
-                    expected_size,
-                    expected_sha,
-                )
-            _install_link(destination, files[relative])
-            return relative, destination
-
-        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(files)))) as pool:
-            installed = dict(pool.map(fetch, files))
+    files = _selected_files()
+    installed = {relative: root / relative for relative in files}
+    missing = [path for path in installed.values() if not path.is_file()]
+    if missing:
+        details = "\n".join(f"- {path}" for path in missing)
+        raise FileNotFoundError(
+            "Required MiniMax H3 weights are missing; provision them before startup:\n"
+            f"{details}"
+        )
+    for relative, destination in installed.items():
+        _install_link(destination, files[relative])
     return installed
 
 
 def ensure_reference_weight() -> Path:
-    """Install the separate REF2VA diffusion model on first reference request."""
     if not license_accepted():
         raise RuntimeError(
             "Set MINIMAX_H3_LICENSE_ACCEPTED=1 only after reviewing and accepting "
             "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE"
         )
     root = weights_root() / "MiniMax-H3"
-    root.mkdir(parents=True, exist_ok=True)
     destination = root / REF2VA_RELATIVE
-    lock_path = root / ".download.lock"
-    with lock_path.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        entry = VERIFIED_WEIGHTS[REF2VA_RELATIVE]
-        valid = destination.exists() and destination.stat().st_size == int(entry["size"])
-        if not valid:
-            _download(entry["url"], destination, int(entry["size"]), entry["sha256"])
-        _install_link(destination, "diffusion_models")
+    if not destination.is_file():
+        raise FileNotFoundError(
+            f"Required MiniMax H3 weight is missing; provision it before startup:\n- {destination}"
+        )
+    _install_link(destination, "diffusion_models")
     return destination
