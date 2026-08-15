@@ -21,7 +21,7 @@ from h3_media import encode_video
 from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
 from h3_workflow import aligned_frames, build_raylight_workflow, build_workflow, dimensions, validate_inputs
-from weights import COMFY_ROOT, ensure_reference_weight, ensure_weights
+from weights import COMFY_ROOT, ensure_reference_weight, ensure_weights, video_vae_precision
 
 COMFY_URL = "http://127.0.0.1:8188"
 
@@ -71,6 +71,8 @@ def _comfy_command() -> list[str]:
         command.append("--highvram")
     if _use_lowvram():
         command.append("--lowvram")
+    if video_vae_precision() == "fp32":
+        command.append("--fp32-vae")
     return command
 
 
@@ -214,6 +216,7 @@ class H3Runtime:
                 print(
                     f"MiniMax H3 ready: attention={attention} gpu={_gpu_name()} "
                     f"vram_mode={_vram_mode(command)} "
+                    f"video_vae={video_vae_precision()} "
                     f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]} comfy_pid={process.pid}",
                     flush=True,
                 )
@@ -285,6 +288,7 @@ class H3Runtime:
             f"gpu={_gpu_name()} "
             f"vram_mode={_vram_mode(command)} "
             f"dynamic_vram={'on' if '--highvram' not in command else 'off'} "
+            f"video_vae={video_vae_precision()} "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
             flush=True,
         )

@@ -11,12 +11,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
+REPACKAGED_VAE_SOURCE_BASE = "https://modelscope.cn/models/Austusm/minimax_h3_video_vae/resolve/master"
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/opt/ComfyUI"))
 TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+VIDEO_VAE_FP16_RELATIVE = "vae/minimax_h3_video_vae_fp16.safetensors"
+VIDEO_VAE_FP32_RELATIVE = "vae/minimax_h3_video_vae_fp32.safetensors"
 FILES = {
     TEXT_ENCODER_RELATIVE: "text_encoders",
-    "vae/minimax_h3_video_vae_fp16.safetensors": "vae",
+    VIDEO_VAE_FP16_RELATIVE: "vae",
     "vae/minimax_h3_audio_vae_fp32.safetensors": "vae",
 }
 VERIFIED_WEIGHTS = {
@@ -25,10 +28,16 @@ VERIFIED_WEIGHTS = {
         "sha256": "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923",
         "url": f"{SOURCE_BASE}/{TEXT_ENCODER_RELATIVE}",
     },
-    "vae/minimax_h3_video_vae_fp16.safetensors": {
+    VIDEO_VAE_FP16_RELATIVE: {
         "size": 5_207_808_496,
         "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
         "url": f"{SOURCE_BASE}/vae/minimax_h3_video_vae_fp16.safetensors",
+    },
+    VIDEO_VAE_FP32_RELATIVE: {
+        # Official FP32 tensors plus the ComfyUI latent normalization buffers.
+        "size": 10_415_548_688,
+        "sha256": "a28fa965eb65a3fe1279a8bf73f01dddaa36ecd039d08751f74bc8849e88767b",
+        "url": f"{REPACKAGED_VAE_SOURCE_BASE}/minimax_h3_video_vae_fp32.safetensors",
     },
     "vae/minimax_h3_audio_vae_fp32.safetensors": {
         "size": 605_254_808,
@@ -41,6 +50,28 @@ VERIFIED_WEIGHTS = {
         "url": f"{SOURCE_BASE}/{REF2VA_RELATIVE}",
     },
 }
+
+
+def video_vae_precision() -> str:
+    precision = os.getenv("H3_VIDEO_VAE_PRECISION", "fp32").strip().lower()
+    if precision not in {"fp16", "fp32"}:
+        raise ValueError("H3_VIDEO_VAE_PRECISION must be fp16 or fp32")
+    return precision
+
+
+def video_vae_relative() -> str:
+    return VIDEO_VAE_FP32_RELATIVE if video_vae_precision() == "fp32" else VIDEO_VAE_FP16_RELATIVE
+
+
+def video_vae_filename() -> str:
+    return video_vae_relative().rsplit("/", 1)[-1]
+
+
+def _selected_files() -> dict[str, str]:
+    selected = dict(FILES)
+    selected.pop(VIDEO_VAE_FP16_RELATIVE)
+    selected[video_vae_relative()] = "vae"
+    return selected
 
 
 def weights_root() -> Path:
@@ -134,6 +165,7 @@ def ensure_weights(workers: int = 4) -> dict[str, Path]:
     with lock_path.open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         manifest = VERIFIED_WEIGHTS
+        files = _selected_files()
 
         def fetch(relative: str) -> tuple[str, Path]:
             entry = manifest.get(relative)
@@ -152,11 +184,11 @@ def ensure_weights(workers: int = 4) -> dict[str, Path]:
                     expected_size,
                     expected_sha,
                 )
-            _install_link(destination, FILES[relative])
+            _install_link(destination, files[relative])
             return relative, destination
 
-        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(FILES)))) as pool:
-            installed = dict(pool.map(fetch, FILES))
+        with ThreadPoolExecutor(max_workers=max(1, min(workers, len(files)))) as pool:
+            installed = dict(pool.map(fetch, files))
     return installed
 
 

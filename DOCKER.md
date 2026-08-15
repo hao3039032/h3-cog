@@ -33,11 +33,16 @@ For a host port other than 7860, change only the left side of `-p`, for example
 `-p 8080:7860`. Use `PORT` only when the platform requires the process itself
 to listen on a different socket.
 
-The four INT8/REF2VA weights are not baked into this portable image. Mount at
-least 56GB of persistent storage at `/weights`; the app performs resumable
+The four INT8/REF2VA weights are not baked into this portable image. The
+default FP32 visual VAE brings the selected set to about 59.13GB; mount at
+least 62GB of persistent storage at `/weights`; the app performs resumable
 ModelScope downloads, SHA-256 verification, and linking into ComfyUI. Set
 `H3_BAKED_WEIGHTS_VERIFIED=1` only for a separate image whose verified weights
 are baked into immutable layers.
+
+Set `H3_VIDEO_VAE_PRECISION=fp16` to use the 5.21GB visual VAE instead. This
+is useful on storage-constrained workers, but it intentionally gives up the
+official FP32 decode path.
 
 SageAttention is compiled for SM89 and SM120 by default, covering Ada GPUs
 such as RTX 4090 and Blackwell consumer/workstation GPUs. Build with a

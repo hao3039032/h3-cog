@@ -64,8 +64,31 @@ def test_weight_sources_are_pinned_to_modelscope_without_nvfp4():
     assert entry["size"] == 27_141_342_152
     assert entry["sha256"] == "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923"
     assert entry["url"] == "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-    assert all(entry["url"].startswith(weights.SOURCE_BASE + "/") for entry in weights.VERIFIED_WEIGHTS.values())
+    assert all(entry["url"].startswith("https://modelscope.cn/models/") for entry in weights.VERIFIED_WEIGHTS.values())
     assert "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" not in weights.VERIFIED_WEIGHTS
+
+
+def test_fp32_video_vae_uses_repackaged_modelscope_source_by_default(monkeypatch):
+    monkeypatch.delenv("H3_VIDEO_VAE_PRECISION", raising=False)
+    assert weights.video_vae_precision() == "fp32"
+    assert weights.video_vae_relative() == weights.VIDEO_VAE_FP32_RELATIVE
+    assert weights.video_vae_filename() == "minimax_h3_video_vae_fp32.safetensors"
+    assert set(weights._selected_files()) == {
+        weights.TEXT_ENCODER_RELATIVE,
+        weights.VIDEO_VAE_FP32_RELATIVE,
+        "vae/minimax_h3_audio_vae_fp32.safetensors",
+    }
+    entry = weights.VERIFIED_WEIGHTS[weights.VIDEO_VAE_FP32_RELATIVE]
+    assert entry["size"] == 10_415_548_688
+    assert entry["sha256"] == "a28fa965eb65a3fe1279a8bf73f01dddaa36ecd039d08751f74bc8849e88767b"
+    assert entry["url"] == "https://modelscope.cn/models/Austusm/minimax_h3_video_vae/resolve/master/minimax_h3_video_vae_fp32.safetensors"
+
+    monkeypatch.setenv("H3_VIDEO_VAE_PRECISION", "fp16")
+    assert weights.video_vae_relative() == weights.VIDEO_VAE_FP16_RELATIVE
+
+    monkeypatch.setenv("H3_VIDEO_VAE_PRECISION", "bf16")
+    with pytest.raises(ValueError, match="fp16 or fp32"):
+        weights.video_vae_precision()
 
 
 def test_weight_installer_never_requests_a_manifest(monkeypatch, tmp_path):
@@ -83,11 +106,11 @@ def test_weight_installer_never_requests_a_manifest(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(weights.urllib.request, "urlopen", blocked)
     installed = weights.ensure_weights()
-    assert set(installed) == set(weights.FILES)
+    assert set(installed) == set(weights._selected_files())
     expected = {
         path: entry["url"]
         for path, entry in weights.VERIFIED_WEIGHTS.items()
-        if path in weights.FILES
+        if path in weights._selected_files()
     }
     assert {
         destination.relative_to(tmp_path / "MiniMax-H3").as_posix(): url

@@ -33,12 +33,13 @@ accelerated output.
 ## Gradio Studio entry point
 
 The ModelScope Studio entry file is `app.py`. It lazily starts ComfyUI on the
-first request so the web page can become available before the 53.92GB weight set
+first request so the web page can become available before the 59.13GB weight set
 has been checked or downloaded. Configure these environment variables:
 
 ```text
 MINIMAX_H3_LICENSE_ACCEPTED=1
 H3_PARALLEL_MODE=single
+H3_VIDEO_VAE_PRECISION=fp32
 WEIGHTS_DIR=/persistent-volume/models
 PORT=7860
 ```
@@ -60,7 +61,13 @@ container all selected GPUs plus adequate shared memory. The separate
 
 For scale-to-zero, bake the four verified REF2VA files into the image and set
 `H3_BAKED_WEIGHTS_VERIFIED=1`; otherwise preserve `WEIGHTS_DIR` on a persistent
-volume. Without either option, every cold worker must download roughly 53.92GB.
+volume. Without either option, every cold worker must download roughly 59.13GB.
+Set `H3_VIDEO_VAE_PRECISION=fp16` only for a storage-constrained comparison
+worker. The runtime downloads the deterministic Comfy-native FP32 artifact from
+`Austusm/minimax_h3_video_vae` (`10,415,548,688` bytes, SHA-256
+`a28fa965eb65a3fe1279a8bf73f01dddaa36ecd039d08751f74bc8849e88767b`). The
+repack preserves every official F32 tensor byte and appends the two `[24]`
+latent normalization buffers expected by ComfyUI.
 
 ## AutoDL startup
 

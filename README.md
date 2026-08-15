@@ -117,16 +117,21 @@ image contains its model weights.
 
 ## Verified weight sources
 
-The REF2VA-only production set contains about 53.92GB of weights:
+The REF2VA-only production set contains about 59.13GB of weights:
 
 ```text
 diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
 text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
-vae/minimax_h3_video_vae_fp16.safetensors
+vae/minimax_h3_video_vae_fp32.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
 ```
 
-All four weights are pinned to ModelScope. Development images resume downloads,
+The FP32 video VAE is the deterministic Comfy-native repack published at
+`Austusm/minimax_h3_video_vae`. It preserves every official F32 tensor byte
+and appends the two `[24]` latent normalization buffers expected by ComfyUI;
+the runtime enables `--fp32-vae`. Set `H3_VIDEO_VAE_PRECISION=fp16` to fall
+back to the smaller conversion for capacity-constrained workers. All selected
+weights are pinned to ModelScope. Development images resume downloads,
 verify exact size and SHA-256, and link the cache into ComfyUI. A
 production image sets `H3_BAKED_WEIGHTS_VERIFIED=1` after verifying its
 immutable layers, so startup checks sizes without network access or a full
@@ -147,7 +152,7 @@ The handler accepts Cog-compatible reference URL lists and `reference_*_urls`
 aliases. It rejects private/reserved network targets, caps each file at 512MiB, and
 returns a bounded base64 media output compatible with app.nz's Cog serverless
 shim. Set minimum workers to zero. A persistent network volume avoids
-re-downloading the 53.92GB model on cold workers.
+re-downloading the 59.13GB model on cold workers.
 
 ### Authenticated acceleration sweeps
 
@@ -182,7 +187,7 @@ EasyCache speedup or quality claim is made before those GPU A/B results exist.
 ## Single-GPU memory and cost
 
 The pruned INT8 transformer is 20.97GB, INT8 Qwen encoder 27.14GB, visual VAE
-5.21GB, and audio VAE 0.61GB, totaling about 53.92GB. They cannot all remain
+10.42GB, and audio VAE 0.61GB, totaling about 59.13GB. They cannot all remain
 resident on a 24GB or 48GB card, so ComfyUI stages components between prompt
 encoding, denoising, and VAE decode. The 48GB path keeps normal DynamicVRAM
 and is the practical single-card target; 24GB remains a correctness fallback.

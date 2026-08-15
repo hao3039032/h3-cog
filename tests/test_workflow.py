@@ -9,6 +9,7 @@ def test_ref2va_workflow_has_official_h3_sampling_path():
     )
     assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
     assert graph["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+    assert graph["3"]["inputs"]["vae_name"] == "minimax_h3_video_vae_fp32.safetensors"
     assert graph["2"]["inputs"]["type"] == "minimax"
     assert graph["5"]["class_type"] == "MiniMaxH3ReferenceToVideo"
     assert graph["8"]["inputs"]["sampler_name"] == "res_multistep"

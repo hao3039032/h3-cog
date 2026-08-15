@@ -60,12 +60,18 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
     monkeypatch.delenv("H3_HIGHVRAM", raising=False)
     monkeypatch.delenv("H3_RESERVE_VRAM_GB", raising=False)
+    monkeypatch.delenv("H3_VIDEO_VAE_PRECISION", raising=False)
     monkeypatch.setattr(h3_runtime, "_gpu_name", lambda: "NVIDIA L40S")
     monkeypatch.setattr(h3_runtime, "_gpu_memory_gib", lambda: 48.0)
     monkeypatch.setattr(h3_runtime, "_gpu_count", lambda: 1)
     command = h3_runtime._comfy_command()
     assert "--lowvram" not in command
     assert "--disable-dynamic-vram" not in command
+    assert "--fp32-vae" in command
+
+    monkeypatch.setenv("H3_VIDEO_VAE_PRECISION", "fp16")
+    command = h3_runtime._comfy_command()
+    assert "--fp32-vae" not in command
     assert command[command.index("--reserve-vram") + 1] == "1.0"
 
     monkeypatch.setenv("H3_LOWVRAM", "1")

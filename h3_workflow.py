@@ -7,11 +7,11 @@ import os
 import uuid
 
 from h3_tuning import CacheTuning
+from weights import video_vae_filename
 
 FPS = 24
 REFERENCE_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-VIDEO_VAE = "minimax_h3_video_vae_fp16.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
 
 ASPECTS = {
@@ -96,7 +96,7 @@ def build_workflow(
     graph: dict[str, dict] = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": REFERENCE_MODEL, "weight_dtype": "default"}},
         "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": TEXT_ENCODER, "type": "minimax", "device": "default"}},
-        "3": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE}},
+        "3": {"class_type": "VAELoader", "inputs": {"vae_name": video_vae_filename()}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
         "5": {
             "class_type": "MiniMaxH3ReferenceToVideo",
@@ -232,7 +232,7 @@ def build_raylight_workflow(
             },
         },
         "3": {"class_type": "CLIPLoader", "inputs": {"clip_name": TEXT_ENCODER, "type": "minimax", "device": "default"}},
-        "4": {"class_type": "VAELoader", "inputs": {"vae_name": VIDEO_VAE}},
+        "4": {"class_type": "VAELoader", "inputs": {"vae_name": video_vae_filename()}},
         "5": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
         "6": {
             "class_type": "MiniMaxH3ReferenceToVideo",

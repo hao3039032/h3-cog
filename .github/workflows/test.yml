@@ -9,4 +9,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv run --extra dev pytest
-      - run: python -m py_compile h3_*.py predict.py rp_handler.py weights.py mirror_weights.py
+      - run: python -m py_compile h3_*.py predict.py rp_handler.py weights.py scripts/pack_video_vae_fp32.py
