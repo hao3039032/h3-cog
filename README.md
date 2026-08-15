@@ -92,6 +92,12 @@ comparison on supported cards. Set `H3_LOWVRAM=1` only as an emergency fallback;
 
 ## Local Cog usage
 
+For a portable Gradio container instead of Cog, see [DOCKER.md](DOCKER.md). The
+default deployment listens on container port `7860`, mounts verified weights at
+`/weights`, and supports the platform-neutral `GRADIO_PUBLIC_PORT` /
+`GRADIO_PUBLIC_PROTO` proxy overrides. AutoDL can override `PORT` and `H3_PORT`
+to `6006`; that requirement is platform-specific rather than an image default.
+
 ```sh
 export MINIMAX_H3_LICENSE_ACCEPTED=1
 cog run \
