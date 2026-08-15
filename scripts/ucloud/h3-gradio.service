@@ -1,0 +1,15 @@
+[Unit]
+Description=Start the MiniMax H3 Gradio container
+Wants=network-online.target
+After=docker.service network-online.target
+Requires=docker.service
+ConditionPathIsDirectory=/home/ubuntu/h3-weights
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker start h3-gradio
+ExecStop=/usr/bin/docker stop -t 60 h3-gradio
+
+[Install]
+WantedBy=multi-user.target
