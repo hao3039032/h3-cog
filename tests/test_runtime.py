@@ -84,6 +84,19 @@ def test_comfy_defaults_to_dynamic_normal_vram_with_emergency_lowvram_switch(mon
     assert command[command.index("--reserve-vram") + 1] == "3"
 
 
+def test_fp32_matmul_tf32_is_an_explicit_comfy_process_switch(monkeypatch):
+    monkeypatch.delenv("H3_FP32_MATMUL_TF32", raising=False)
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
+    monkeypatch.setenv("TORCH_ALLOW_TF32_CUBLAS_OVERRIDE", "1")
+    assert h3_runtime._fp32_matmul_precision() == "strict-fp32"
+    assert h3_runtime._comfy_environment()["TORCH_ALLOW_TF32_CUBLAS_OVERRIDE"] == "0"
+    assert h3_runtime._comfy_environment()["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
+
+    monkeypatch.setenv("H3_FP32_MATMUL_TF32", "1")
+    assert h3_runtime._fp32_matmul_precision() == "tf32"
+    assert h3_runtime._comfy_environment()["TORCH_ALLOW_TF32_CUBLAS_OVERRIDE"] == "1"
+
+
 def test_large_single_gpu_uses_highvram_with_manual_overrides(monkeypatch):
     monkeypatch.delenv("H3_LOWVRAM", raising=False)
     monkeypatch.delenv("H3_HIGHVRAM", raising=False)

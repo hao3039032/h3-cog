@@ -43,6 +43,10 @@ Set `H3_VIDEO_VAE_PRECISION=fp16` to use the 5.21GB visual VAE instead. This
 is useful on storage-constrained workers, but it intentionally gives up the
 official FP32 decode path.
 
+Set `H3_FP32_MATMUL_TF32=1` to enable cuBLAS TF32 while keeping the FP32 VAE
+weights and activations. This can accelerate the VAE on tensor-core GPUs, but
+it is numerically different from strict FP32 and should be A/B tested.
+
 SageAttention is compiled for SM89 and SM120 by default, covering Ada GPUs
 such as RTX 4090 and Blackwell consumer/workstation GPUs. Build with a
 different `SAGE_CUDA_ARCH_LIST` for other supported targets. Runtime still

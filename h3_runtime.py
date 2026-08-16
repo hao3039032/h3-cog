@@ -80,6 +80,18 @@ def _env_enabled(name: str) -> bool:
     return os.getenv(name, "").lower() in {"1", "true", "yes"}
 
 
+def _fp32_matmul_precision() -> str:
+    return "tf32" if _env_enabled("H3_FP32_MATMUL_TF32") else "strict-fp32"
+
+
+def _comfy_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    # This must be present before ComfyUI imports torch.
+    env["TORCH_ALLOW_TF32_CUBLAS_OVERRIDE"] = "1" if _env_enabled("H3_FP32_MATMUL_TF32") else "0"
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    return env
+
+
 def _gpu_name() -> str:
     """Return the CUDA device name without making hardware detection fatal."""
     try:
@@ -204,9 +216,7 @@ class H3Runtime:
                 attention = "sageattention"
             except ImportError:
                 pass
-        env = os.environ.copy()
-        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        process = subprocess.Popen(command, cwd=COMFY_ROOT, env=env)
+        process = subprocess.Popen(command, cwd=COMFY_ROOT, env=_comfy_environment())
         deadline = time.time() + 180
         while time.time() < deadline:
             if process.poll() is not None:
@@ -217,6 +227,7 @@ class H3Runtime:
                     f"MiniMax H3 ready: attention={attention} gpu={_gpu_name()} "
                     f"vram_mode={_vram_mode(command)} "
                     f"video_vae={video_vae_precision()} "
+                    f"fp32_matmul={_fp32_matmul_precision()} "
                     f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]} comfy_pid={process.pid}",
                     flush=True,
                 )
@@ -289,6 +300,7 @@ class H3Runtime:
             f"vram_mode={_vram_mode(command)} "
             f"dynamic_vram={'on' if '--highvram' not in command else 'off'} "
             f"video_vae={video_vae_precision()} "
+            f"fp32_matmul={_fp32_matmul_precision()} "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
             flush=True,
         )

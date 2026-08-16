@@ -90,6 +90,10 @@ video during validation. Set `H3_SAGE_ATTENTION=0` for a same-seed PyTorch SDPA
 comparison on supported cards. Set `H3_LOWVRAM=1` only as an emergency fallback;
 `H3_RESERVE_VRAM_GB` defaults to `1.0`.
 
+FP32 matmuls stay strict by default. Set `H3_FP32_MATMUL_TF32=1` to allow
+cuBLAS TF32 for the FP32 VideoVAE; this changes numerics and is intended for
+same-seed speed and quality A/B tests.
+
 ## Local Cog usage
 
 For a portable Gradio container instead of Cog, see [DOCKER.md](DOCKER.md). The
