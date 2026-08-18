@@ -15,6 +15,7 @@ from h3_gradio import (
     configured_public_port,
     configured_public_proto,
 )
+from h3_seed import resolve_seed
 from h3_runtime import H3Runtime
 from h3_workflow import infer_task
 
@@ -80,7 +81,7 @@ def generate_video(
     size: str,
     duration: float,
     steps: int,
-    seed: float | None,
+    seed: str | None,
     include_audio: bool,
 ) -> tuple[str, str]:
     if not prompt or not prompt.strip():
@@ -94,7 +95,7 @@ def generate_video(
             reference_videos,
             reference_audios,
         )
-        resolved_seed = int(seed) if seed is not None else None
+        resolved_seed = resolve_seed(seed)
         # Keep one ComfyUI prompt queue and one coherent model-cache state.
         with _generation_lock:
             runtime = _get_runtime()
@@ -119,7 +120,7 @@ def generate_video(
         return (
             str(output),
             f"完成 · task={task} · backend={runtime.parallel_mode} · "
-            f"seed={resolved_seed if resolved_seed is not None else 'random'}",
+            f"seed={resolved_seed}",
         )
     except gr.Error:
         raise
@@ -178,7 +179,7 @@ def build_demo() -> gr.Blocks:
                     duration = gr.Slider(4, 15, value=5, step=0.5, label="时长（秒）")
                     steps = gr.Slider(8, 60, value=24, step=1, label="采样步数")
                 with gr.Row():
-                    seed = gr.Number(value=None, precision=0, minimum=0, maximum=2**63 - 1, label="Seed（留空随机）")
+                    seed = gr.Textbox(value="", label="Seed（留空随机）")
                     include_audio = gr.Checkbox(value=True, label="保留生成音频")
                 submit = gr.Button("生成视频", variant="primary")
             with gr.Column(scale=2):
