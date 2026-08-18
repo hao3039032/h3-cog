@@ -3,8 +3,8 @@
 This image reproduces the validated single-GPU CUDA 13 stack from source:
 Python 3.12, PyTorch 2.12.1+cu130, ComfyUI v0.31.0
 (`43cb4fff...`), and SageAttention `eb615cf...`. It intentionally does not
-install Raylight: the first portable target is the native single-GPU path used
-by the working deployment.
+install custom distributed nodes: the portable target is the native
+single-process ComfyUI path.
 
 The CUDA user-space runtime is bundled in the image. A host therefore needs an
 NVIDIA driver that supports CUDA 13 (typically version 580 or newer), but it
@@ -33,9 +33,9 @@ For a host port other than 7860, change only the left side of `-p`, for example
 `-p 8080:7860`. Use `PORT` only when the platform requires the process itself
 to listen on a different socket.
 
-The four INT8/REF2VA weights are not baked into this portable image. The
-default FP32 visual VAE brings the selected set to about 59.13GB; mount at
-least 62GB of persistent storage at `/weights` and provision the files listed
+The five task-routing weights are not baked into this portable image. The
+default FP32 visual VAE brings the selected set to about 80.10GB; mount at
+least 84GB of persistent storage at `/weights` and provision the files listed
 in the README before startup. The app links those files into ComfyUI and
 consumes them as-is; missing files fail startup with their full paths.
 
@@ -46,6 +46,11 @@ official FP32 decode path.
 Set `H3_FP32_MATMUL_TF32=1` to enable cuBLAS TF32 while keeping the FP32 VAE
 weights and activations. This can accelerate the VAE on tensor-core GPUs, but
 it is numerically different from strict FP32 and should be A/B tested.
+
+Set `H3_DIT_SWITCH_POLICY=auto` to leave the ComfyUI cache intact when routing
+between FL2VA and REF2VA. Set `evict` only when diagnosing memory pressure; it
+frees ComfyUI models and cache on a partition switch. `H3_LOWVRAM` and retired
+`H3_PARALLEL_MODE` distributed values are not supported.
 
 SageAttention is compiled for SM89 and SM120 by default, covering Ada GPUs
 such as RTX 4090 and Blackwell consumer/workstation GPUs. Build with a

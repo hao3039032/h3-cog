@@ -30,10 +30,10 @@ def test_structured_prompt_is_not_double_wrapped():
 
 
 def test_sampling_inputs_are_bounded():
-    validate_inputs(steps=60, seed=1)
+    validate_inputs(task="t2va", steps=60, seed=1)
     with pytest.raises(ValueError, match="steps"):
-        validate_inputs(steps=7, seed=1)
+        validate_inputs(task="t2va", steps=7, seed=1)
     with pytest.raises(ValueError, match="steps"):
-        validate_inputs(steps=61, seed=1)
+        validate_inputs(task="t2va", steps=61, seed=1)
     with pytest.raises(ValueError, match="seed"):
-        validate_inputs(steps=20, seed=-1)
+        validate_inputs(task="t2va", steps=20, seed=-1)

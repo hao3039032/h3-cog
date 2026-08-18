@@ -65,7 +65,6 @@ RUN chmod 755 /src/start_gradio.sh \
 
 ENV COMFY_ROOT=/opt/ComfyUI \
     WEIGHTS_DIR=/weights \
-    H3_PARALLEL_MODE=single \
     H3_VIDEO_VAE_PRECISION=fp32 \
     PORT=7860
 

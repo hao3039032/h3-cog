@@ -1,3 +1,3 @@
 # ModelScope Studio installs this file before launching app.py. CUDA, PyTorch,
-# ComfyUI, Raylight, and model weights are supplied by the deployment image.
+# ComfyUI, and model weights are supplied by the deployment image.
 gradio>=6.24,<7

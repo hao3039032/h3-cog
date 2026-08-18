@@ -9,7 +9,9 @@ SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
 REPACKAGED_VAE_SOURCE_BASE = "https://modelscope.cn/models/Austusm/minimax_h3_video_vae/resolve/master"
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/opt/ComfyUI"))
 TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
+FL2VA_RELATIVE = "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+DIFFUSION_RELATIVES = (FL2VA_RELATIVE, REF2VA_RELATIVE)
 VIDEO_VAE_FP16_RELATIVE = "vae/minimax_h3_video_vae_fp16.safetensors"
 VIDEO_VAE_FP32_RELATIVE = "vae/minimax_h3_video_vae_fp32.safetensors"
 FILES = {
@@ -38,6 +40,11 @@ VERIFIED_WEIGHTS = {
         "size": 605_254_808,
         "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
         "url": f"{SOURCE_BASE}/vae/minimax_h3_audio_vae_fp32.safetensors",
+    },
+    FL2VA_RELATIVE: {
+        "size": 20_970_379_616,
+        "sha256": "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a",
+        "url": f"{SOURCE_BASE}/{FL2VA_RELATIVE}",
     },
     REF2VA_RELATIVE: {
         "size": 20_970_379_616,
@@ -113,17 +120,29 @@ def ensure_weights() -> dict[str, Path]:
     return installed
 
 
-def ensure_reference_weight() -> Path:
+def _ensure_diffusion_weight(relative: str) -> Path:
     if not license_accepted():
         raise RuntimeError(
             "Set MINIMAX_H3_LICENSE_ACCEPTED=1 only after reviewing and accepting "
             "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE"
         )
     root = weights_root() / "MiniMax-H3"
-    destination = root / REF2VA_RELATIVE
+    destination = root / relative
     if not destination.is_file():
         raise FileNotFoundError(
             f"Required MiniMax H3 weight is missing; provision it before startup:\n- {destination}"
         )
     _install_link(destination, "diffusion_models")
     return destination
+
+
+def ensure_reference_weight() -> Path:
+    return _ensure_diffusion_weight(REF2VA_RELATIVE)
+
+
+def ensure_fl2va_weight() -> Path:
+    return _ensure_diffusion_weight(FL2VA_RELATIVE)
+
+
+def ensure_diffusion_weights() -> dict[str, Path]:
+    return {relative: _ensure_diffusion_weight(relative) for relative in DIFFUSION_RELATIVES}

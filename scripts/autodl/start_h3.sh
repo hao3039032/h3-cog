@@ -12,7 +12,6 @@ H3_CODE_DIR="${H3_CODE_DIR:-/root/h3-cog}"
 export COMFY_ROOT="${COMFY_ROOT:-/root/ComfyUI}"
 export WEIGHTS_DIR="${WEIGHTS_DIR:-/root/autodl-tmp/weights}"
 export MINIMAX_H3_LICENSE_ACCEPTED="${MINIMAX_H3_LICENSE_ACCEPTED:-1}"
-export H3_PARALLEL_MODE="${H3_PARALLEL_MODE:-single}"
 export PORT="${PORT:-6006}"
 
 cd "$H3_CODE_DIR"

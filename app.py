@@ -16,6 +16,7 @@ from h3_gradio import (
     configured_public_proto,
 )
 from h3_runtime import H3Runtime
+from h3_workflow import infer_task
 
 _runtime: H3Runtime | None = None
 _runtime_lock = threading.Lock()
@@ -44,8 +45,34 @@ def _paths(files: Any) -> list[Path]:
     return paths
 
 
+def _single_path(value: Any) -> Path | None:
+    paths = _paths(value)
+    return paths[0] if paths else None
+
+
+def _infer_task(
+    first_frame: Any,
+    last_frame: Any,
+    loop: bool,
+    reference_images: Any,
+    reference_videos: Any,
+    reference_audios: Any,
+) -> str:
+    return infer_task(
+        first_frame=_single_path(first_frame),
+        last_frame=_single_path(last_frame),
+        loop=bool(loop),
+        reference_count=len(
+            _paths(reference_images) + _paths(reference_videos) + _paths(reference_audios)
+        ),
+    )
+
+
 def generate_video(
     prompt: str,
+    first_frame: Any,
+    last_frame: Any,
+    loop: bool,
     reference_images: Any,
     reference_videos: Any,
     reference_audios: Any,
@@ -58,52 +85,93 @@ def generate_video(
 ) -> tuple[str, str]:
     if not prompt or not prompt.strip():
         raise gr.Error("请输入提示词。")
-    images = _paths(reference_images)
-    videos = _paths(reference_videos)
-    audios = _paths(reference_audios)
-    if not (images or videos or audios):
-        raise gr.Error("REF2VA 至少需要一张参考图、一个参考视频或一段参考音频。")
-    resolved_seed = int(seed) if seed is not None else None
     try:
-        # The model/runtime is intentionally single-concurrency even when its
-        # sampling graph uses two GPUs. Parallel requests would duplicate the
-        # 40+GB resident working set and make OOMs non-deterministic.
+        task = _infer_task(
+            first_frame,
+            last_frame,
+            loop,
+            reference_images,
+            reference_videos,
+            reference_audios,
+        )
+        resolved_seed = int(seed) if seed is not None else None
+        # Keep one ComfyUI prompt queue and one coherent model-cache state.
         with _generation_lock:
             runtime = _get_runtime()
             output = runtime.generate(
                 prompt=prompt.strip(),
-                reference_images=images,
-                reference_videos=videos,
-                reference_audios=audios,
+                task=task,
+                first_frame=_single_path(first_frame),
+                last_frame=_single_path(last_frame),
+                loop=bool(loop),
+                reference_images=_paths(reference_images),
+                reference_videos=_paths(reference_videos),
+                reference_audios=_paths(reference_audios),
                 aspect_ratio=aspect_ratio,
                 size=size,
                 duration=float(duration),
                 steps=int(steps),
                 seed=resolved_seed,
-                structured_prompt=False,
+                structured_prompt=task != "ref2va",
                 include_audio=include_audio,
                 output_codec="mp4-h264",
             )
-        return str(output), f"完成 · backend={runtime.parallel_mode} · seed={resolved_seed if resolved_seed is not None else 'random'}"
+        return (
+            str(output),
+            f"完成 · task={task} · backend={runtime.parallel_mode} · "
+            f"seed={resolved_seed if resolved_seed is not None else 'random'}",
+        )
     except gr.Error:
         raise
     except Exception as error:
         raise gr.Error(str(error)) from error
 
 
+def _task_display(
+    first_frame: Any,
+    last_frame: Any,
+    loop: bool,
+    reference_images: Any,
+    reference_videos: Any,
+    reference_audios: Any,
+) -> str:
+    try:
+        task = _infer_task(
+            first_frame,
+            last_frame,
+            loop,
+            reference_images,
+            reference_videos,
+            reference_audios,
+        )
+        return f"当前任务：{task}"
+    except ValueError as error:
+        return f"输入冲突：{error}"
+
+
 def build_demo() -> gr.Blocks:
-    with gr.Blocks(title="MiniMax H3 REF2VA") as demo:
+    with gr.Blocks(title="MiniMax H3") as demo:
         gr.Markdown(
-            "# MiniMax H3 · REF2VA\n"
-            "默认单卡运行：48GB 显卡使用 DynamicVRAM，24GB 显卡自动降级为低显存模式。"
+            "# MiniMax H3 · t2va / fl2va / ref2va\n"
+            "默认单进程 native ComfyUI 路径；上传内容会自动推导任务类型。"
         )
         with gr.Row():
             with gr.Column(scale=3):
-                prompt = gr.Textbox(label="提示词", lines=12, placeholder="使用 <Picture 1>、<Video 1>、<Audio 1> 指代参考素材")
+                prompt = gr.Textbox(
+                    label="提示词",
+                    lines=12,
+                    placeholder="使用 <Picture 1>、<Video 1>、<Audio 1> 指代 REF2VA 参考素材",
+                )
+                with gr.Row():
+                    first_frame = gr.Image(label="首帧", type="filepath")
+                    last_frame = gr.Image(label="尾帧", type="filepath")
+                    loop = gr.Checkbox(value=False, label="首帧循环")
                 with gr.Row():
                     reference_images = gr.File(label="参考图片（最多 9 张）", file_count="multiple", file_types=["image"], type="filepath")
                     reference_videos = gr.File(label="参考视频（最多 3 个）", file_count="multiple", file_types=["video"], type="filepath")
                     reference_audios = gr.File(label="参考音频（最多 3 段）", file_count="multiple", file_types=["audio"], type="filepath")
+                with gr.Row():
+                    task_display = gr.Textbox(value="当前任务：t2va", label="任务路由", interactive=False)
                 with gr.Row():
                     aspect_ratio = gr.Dropdown(["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], value="9:16", label="画幅")
                     size = gr.Dropdown(["preview", "balanced", "native"], value="preview", label="尺寸（preview 为 480p）")
@@ -116,9 +184,38 @@ def build_demo() -> gr.Blocks:
             with gr.Column(scale=2):
                 output = gr.Video(label="输出 MP4")
                 status = gr.Textbox(label="状态", interactive=False)
+
+        routing_inputs = [
+            first_frame,
+            last_frame,
+            loop,
+            reference_images,
+            reference_videos,
+            reference_audios,
+        ]
+        for component in routing_inputs:
+            component.change(
+                _task_display,
+                inputs=routing_inputs,
+                outputs=task_display,
+            )
         submit.click(
             generate_video,
-            inputs=[prompt, reference_images, reference_videos, reference_audios, aspect_ratio, size, duration, steps, seed, include_audio],
+            inputs=[
+                prompt,
+                first_frame,
+                last_frame,
+                loop,
+                reference_images,
+                reference_videos,
+                reference_audios,
+                aspect_ratio,
+                size,
+                duration,
+                steps,
+                seed,
+                include_audio,
+            ],
             outputs=[output, status],
         )
     return demo

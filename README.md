@@ -1,8 +1,9 @@
 # MiniMax H3 Cog for app.nz
 
-MiniMax H3 reference-to-video in a portable [Cog](https://github.com/replicate/cog).
-This deployment intentionally uses only REF2VA: one or more reference images,
-videos, or audio clips are required. The runtime expects all model files to be
+MiniMax H3 text, first/last-frame, and reference-to-video generation in a
+portable [Cog](https://github.com/replicate/cog). The public task contract is
+`t2va`, `fl2va`, or `ref2va`; `t2va` and `fl2va` share the FL2VA INT8 DiT while
+REF2VA uses its own INT8 DiT. The runtime expects all model files to be
 provisioned externally; missing paths fail startup instead of triggering network
 downloads or integrity scans.
 
@@ -28,14 +29,15 @@ does not permit it.
 
 ## What is included
 
-- REF2VA: up to 9 reference images, 3 reference videos (including their audio),
-  and 3 standalone audio clips for identity, style, motion, camera, or voice.
+- Explicit task routing plus REF2VA support for up to 9 reference images, 3
+  reference videos (including their audio), and 3 standalone audio clips.
+- FL2VA first-frame, last-frame, and loop conditioning with deterministic target
+  canvas pre-cropping.
 - Native H3 aspect ratios and a 768px short-edge quality tier.
 - Official `res_multistep` sampler and 24-step deployment default; 12–16 steps and
   reduced pixel area are exposed for previews.
 - optional SageAttention when supplied by the image operator, with PyTorch
-  attention fallback; one 48GB card uses normal DynamicVRAM, while a 24GB card
-  is limited to the low-VRAM correctness fallback.
+  attention fallback and ComfyUI DynamicVRAM on every GPU size.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
   fallback. Native audio is remuxed as Opus or AAC.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
@@ -56,6 +58,10 @@ treating it as a quality-neutral default for production traffic.
 | Input | Default | Notes |
 | --- | --- | --- |
 | `prompt` | required | Scene, motion, camera, dialogue, SFX, and music |
+| `task` | required | `t2va`, `fl2va`, or `ref2va` |
+| `first_frame` | empty | FL2VA opening keyframe; required when `loop=true` |
+| `last_frame` | empty | FL2VA closing keyframe |
+| `loop` | `false` | Reuses `first_frame` as the closing keyframe |
 | `reference_images` | empty | Up to 9 R2V images; prompt tags are `<Picture 1>`, etc. |
 | `reference_videos` | empty | Up to 3 R2V videos; exposes `<Video n>` and its `<Audio n>` |
 | `reference_audios` | empty | Up to 3 standalone R2V audio clips |
@@ -63,7 +69,7 @@ treating it as a quality-neutral default for production traffic.
 | `size` | `preview` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
-| `structured_prompt` | `false` | Optional FL-style audiovisual wrapper; native REF2VA prompts should leave this off |
+| `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
 | `include_audio` | `true` | Keep or strip H3's generated stereo audio |
 | `output_codec` | `mp4-h264` | `webm-av1` or `mp4-h264` |
 | `encode_quality` | `26` | Lower is higher quality and larger |
@@ -75,19 +81,25 @@ frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
 On a 48GB L40S, ComfyUI's DynamicVRAM path measured about 7% faster than
 estimate-based loading on the same 480x864, 362-frame workload.
 
-The runtime defaults to `H3_PARALLEL_MODE=single`. GPUs reporting at least
-80GiB use ComfyUI's HighVRAM mode so the INT8 weight set can stay resident;
-28-to-79GiB cards use normal DynamicVRAM; a single 24GB GPU automatically adds
-ComfyUI's `--lowvram` flag for correctness. `H3_HIGHVRAM=0` selects DynamicVRAM
-for an A/B test, while `H3_LOWVRAM=1` remains the emergency override. Raylight
-FSDP2 + Ulysses2 remains available as an explicit two-GPU compatibility path.
+The runtime is native ComfyUI, single-process, and uses the first CUDA device.
+GPUs reporting at least 80GiB use ComfyUI's HighVRAM mode so the shared encoder,
+VAEs, and both INT8 DiTs have the opportunity to remain cached; smaller cards
+use normal DynamicVRAM and let ComfyUI evict components as needed.
+`H3_HIGHVRAM=0` selects DynamicVRAM for an A/B test. Retired values of
+`H3_PARALLEL_MODE=raylight/auto/fsdp/dual` fail startup with an explicit
+"Raylight has been removed" error; unset it or use `single`.
+
+Task switching defaults to `H3_DIT_SWITCH_POLICY=auto`: no `/free` request is
+sent when moving between the FL2VA and REF2VA partitions, so a 96GB card can
+keep both DiTs warm. Set `H3_DIT_SWITCH_POLICY=evict` only when diagnosing
+memory pressure; it calls ComfyUI `/free` on a real partition switch.
 See [MODELSCOPE.md](MODELSCOPE.md) for the Gradio Studio entry point and
 deployment requirements.
 
 The Cog image builds SageAttention for SM80, SM89, and SM120. H100 uses
 PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted H3
 video during validation. Set `H3_SAGE_ATTENTION=0` for a same-seed PyTorch SDPA
-comparison on supported cards. Set `H3_LOWVRAM=1` only as an emergency fallback;
+comparison on supported cards. `H3_LOWVRAM` is retired and ignored;
 `H3_RESERVE_VRAM_GB` defaults to `1.0`.
 
 FP32 matmuls stay strict by default. Set `H3_FP32_MATMUL_TF32=1` to allow
@@ -105,25 +117,29 @@ to `6006`; that requirement is platform-specific rather than an image default.
 ```sh
 export MINIMAX_H3_LICENSE_ACCEPTED=1
 cog run \
+  -i task=ref2va \
   -i reference_images=@character.png \
   -i reference_videos=@camera-move.mp4 \
   -i reference_audios=@voice.wav \
   -i prompt="Keep <Picture 1>'s identity, follow <Video 1>'s camera move, and use <Audio 2>'s voice."
 ```
 
-At least one reference input is required. `preview` produces a 480-pixel short
-edge and is the recommended default for latency-sensitive use.
+For FL2VA, pass `task=fl2va` plus a first and/or last frame (or `loop=true`
+with a first frame). For T2VA, pass `task=t2va` with no media. `preview`
+produces a 480-pixel short edge and is the recommended default for
+latency-sensitive use.
 
 The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI v0.31.0
 (`43cb4fffc89bba20ab7bd61467a36d0339338dab`), whose joint audio/video sampler
-contract matches Raylight's H3 distributed forward. The published production
-image contains its model weights.
+contract matches the official H3 nodes. The published production image contains
+its model weights.
 
 ## Verified weight sources
 
-The REF2VA-only production set contains about 59.13GB of weights:
+The task-routing production set contains about 80.10GB of weights:
 
 ```text
+diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
 diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
 text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
 vae/minimax_h3_video_vae_fp32.safetensors
@@ -150,11 +166,11 @@ Build and push the same Cog image, then override the container command:
 python -u /src/rp_handler.py
 ```
 
-The handler accepts Cog-compatible reference URL lists and `reference_*_urls`
-aliases. It rejects private/reserved network targets, caps each file at 512MiB, and
-returns a bounded base64 media output compatible with app.nz's Cog serverless
-shim. Set minimum workers to zero. A persistent network volume must already
-contain the 59.13GB model set.
+The handler requires `task`, accepts FL keyframe URLs plus Cog-compatible
+reference URL lists and `*_urls` aliases. It rejects private/reserved network
+targets, caps each file at 512MiB, and returns a bounded base64 media output
+compatible with app.nz's Cog serverless shim. Set minimum workers to zero. A
+persistent network volume must already contain the 80.10GB model set.
 
 ### Authenticated acceleration sweeps
 
@@ -188,14 +204,13 @@ EasyCache speedup or quality claim is made before those GPU A/B results exist.
 
 ## Single-GPU memory and cost
 
-The pruned INT8 transformer is 20.97GB, INT8 Qwen encoder 27.14GB, visual VAE
-10.42GB, and audio VAE 0.61GB, totaling about 59.13GB. They cannot all remain
-resident on a 24GB or 48GB card, so ComfyUI stages components between prompt
-encoding, denoising, and VAE decode. The 48GB path keeps normal DynamicVRAM
-and is the practical single-card target; 24GB remains a correctness fallback.
-Use at least 64GB system RAM (96GB is more comfortable) and a persistent weight
-volume for the DynamicVRAM path. GPUs reporting at least 80GiB have enough room
-for the weights plus activations and use HighVRAM after the first load.
+Each pruned INT8 DiT is 20.97GB; the INT8 Qwen encoder is 27.14GB, visual VAE
+10.42GB, and audio VAE 0.61GB. Both DiT partitions bring the selected set to
+about 80.10GB. They cannot all remain resident on a 24GB or 48GB card, so
+ComfyUI stages components between prompt encoding, denoising, and VAE decode.
+Use at least 96GB system RAM on DynamicVRAM workers and a persistent weight
+volume. GPUs reporting at least 80GiB use HighVRAM after the first load and may
+keep both partitions warm on 96GB-class cards.
 
 Use preview/balanced for most requests, keep the process warm for bursts, and
 scale the worker to zero when idle. app.nz's H3 template publishes the final
@@ -211,10 +226,10 @@ cog build -t h3-cog:local
 ```
 
 Unit tests cover the H3 frame grid, native dimensions, official keyframe prompt
-prefixes, workflow graph, GPU/CPU encoder fallback, explicit license gate, and
-externally provisioned weight paths. A real GPU smoke test additionally requires
-the accepted model license, 54GB of weights, a 48GB CUDA GPU, and enough host
-RAM.
+prefixes, task routing, model-cache policy, GPU/CPU encoder fallback, explicit
+license gate, and externally provisioned weight paths. A real GPU smoke test
+additionally requires the accepted model license, 80.10GB of weights, a 48GB
+CUDA GPU, and enough host RAM.
 
 `demo_prompts.json` is the deterministic seven-clip launch suite covering text,
 image, first/last-frame, loop, vertical, square, and ultrawide output. Keep seed,

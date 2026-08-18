@@ -9,6 +9,7 @@ import random
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -20,10 +21,20 @@ from pathlib import Path
 from h3_media import encode_video
 from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
-from h3_workflow import aligned_frames, build_raylight_workflow, build_workflow, dimensions, validate_inputs
-from weights import COMFY_ROOT, ensure_reference_weight, ensure_weights, video_vae_precision
+from h3_workflow import (
+    TASK_FL2VA,
+    TASK_REF2VA,
+    aligned_frames,
+    build_workflow,
+    dimensions,
+    normalize_task,
+    task_partition,
+    validate_inputs,
+)
+from weights import COMFY_ROOT, ensure_diffusion_weights, ensure_weights, video_vae_precision
 
 COMFY_URL = "http://127.0.0.1:8188"
+_ROUTE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -57,7 +68,7 @@ def _comfy_error(status: dict) -> str:
 
 
 def _comfy_command() -> list[str]:
-    """Keep large-memory GPUs resident and provide explicit fallback modes."""
+    """Keep large-memory GPUs resident and otherwise trust DynamicVRAM."""
     command = [
         sys.executable,
         str(COMFY_ROOT / "main.py"),
@@ -69,8 +80,6 @@ def _comfy_command() -> list[str]:
     ]
     if _use_highvram():
         command.append("--highvram")
-    if _use_lowvram():
-        command.append("--lowvram")
     if video_vae_precision() == "fp32":
         command.append("--fp32-vae")
     return command
@@ -125,47 +134,30 @@ def _gpu_memory_gib() -> float | None:
     return None
 
 
-def _use_lowvram() -> bool:
-    """Make a 24GB single-card worker safe while retaining an override."""
-    configured = os.getenv("H3_LOWVRAM")
-    if configured is not None:
-        return configured.lower() in {"1", "true", "yes"}
-    memory_gib = _gpu_memory_gib()
-    return _gpu_count() == 1 and memory_gib is not None and memory_gib < 28
-
-
 def _use_highvram() -> bool:
-    """Keep the complete weight set resident on one 80GB-class GPU."""
+    """Give an 80GiB-class card the option to keep both INT8 DiTs warm."""
     configured = os.getenv("H3_HIGHVRAM")
     if configured is not None:
         return configured.lower() in {"1", "true", "yes"}
-    if os.getenv("H3_LOWVRAM") is not None:
-        return False
     memory_gib = _gpu_memory_gib()
     return _gpu_count() == 1 and memory_gib is not None and memory_gib >= 80
 
 
-def select_parallel_mode(requested: str | None = None, gpu_count: int | None = None) -> str:
-    """Select native single-GPU execution or Raylight's two-GPU path."""
-    requested = (requested or os.getenv("H3_PARALLEL_MODE", "single")).strip().lower()
-    aliases = {"native": "single", "dual": "raylight", "fsdp": "raylight"}
-    requested = aliases.get(requested, requested)
-    if requested not in {"auto", "single", "raylight"}:
-        raise ValueError("H3_PARALLEL_MODE must be auto, single, or raylight")
-    gpu_count = _gpu_count() if gpu_count is None else int(gpu_count)
-    if requested == "auto":
-        return "raylight" if gpu_count >= 2 else "single"
-    if requested == "raylight" and gpu_count < 2:
-        raise RuntimeError(f"Raylight mode requires 2 visible GPUs; found {gpu_count}")
-    return requested
+def select_parallel_mode(requested: str | None = None) -> str:
+    """Validate the native-only execution mode while failing loudly on old aliases."""
+    value = (requested if requested is not None else os.getenv("H3_PARALLEL_MODE", "single")).strip().lower()
+    if value in {"raylight", "auto", "fsdp", "dual"}:
+        raise ValueError("Raylight has been removed; use H3_PARALLEL_MODE=single or unset it")
+    if value in {"", "native", "single"}:
+        return "single"
+    raise ValueError("H3_PARALLEL_MODE must be single for the native ComfyUI runtime")
 
 
-def _raylight_nodes_available() -> bool:
-    required = ("RayInitializer", "RayUNETLoader", "RayBasicGuider", "RayBasicScheduler", "XFuserSamplerCustomAdvanced")
-    try:
-        return all(node in _json_request("/object_info/" + urllib.parse.quote(node), timeout=10) for node in required)
-    except (OSError, urllib.error.URLError, json.JSONDecodeError):
-        return False
+def _dit_switch_policy() -> str:
+    policy = os.getenv("H3_DIT_SWITCH_POLICY", "auto").strip().lower()
+    if policy not in {"auto", "evict"}:
+        raise ValueError("H3_DIT_SWITCH_POLICY must be auto or evict")
+    return policy
 
 
 def _sage_attention_supported() -> bool:
@@ -183,28 +175,27 @@ def _sage_attention_supported() -> bool:
 
 
 def _vram_mode(command: list[str]) -> str:
-    if "--lowvram" in command:
-        return "low"
-    if "--highvram" in command:
-        return "high-resident"
-    return "normal-dynamic"
+    return "high-resident" if "--highvram" in command else "normal-dynamic"
 
 
 class H3Runtime:
     def __init__(self) -> None:
+        parallel_mode = select_parallel_mode()
+        dit_switch_policy = _dit_switch_policy()
         ensure_weights()
-        ensure_reference_weight()
-        requested_mode = os.getenv("H3_PARALLEL_MODE", "single").strip().lower()
-        self.parallel_mode = select_parallel_mode(requested_mode)
+        ensure_diffusion_weights()
+        if os.getenv("H3_LOWVRAM") is not None:
+            print("H3_LOWVRAM is retired; ComfyUI DynamicVRAM controls memory", flush=True)
+        self.parallel_mode = parallel_mode
+        self.dit_switch_policy = dit_switch_policy
+        self.current_task: str | None = None
+        self.current_partition: str | None = None
         self.process = self._start_comfy()
-        if self.parallel_mode == "raylight" and not _raylight_nodes_available():
-            if requested_mode == "auto":
-                print("Raylight nodes unavailable; falling back to native single-GPU workflow", flush=True)
-                self.parallel_mode = "single"
-            else:
-                self.process.terminate()
-                raise RuntimeError("H3_PARALLEL_MODE=raylight but the required Raylight ComfyUI nodes did not load")
-        print(f"H3 execution backend: mode={self.parallel_mode} visible_gpus={_gpu_count()}", flush=True)
+        print(
+            f"H3 execution backend: mode=native/single visible_gpus={_gpu_count()} "
+            f"dit_switch_policy={self.dit_switch_policy}",
+            flush=True,
+        )
 
     def _start_comfy(self) -> subprocess.Popen:
         command = _comfy_command()
@@ -273,19 +264,42 @@ class H3Runtime:
                             return path
         raise RuntimeError("ComfyUI completed without a saved video")
 
+    def _prepare_generation(self, task: str, partition: str) -> None:
+        previous_task = self.current_task
+        previous_partition = self.current_partition
+        if task != previous_task or partition != previous_partition:
+            print(
+                f"H3 task route: {previous_task or 'cold'}->{task} "
+                f"partition={previous_partition or 'cold'}->{partition}",
+                flush=True,
+            )
+        if (
+            previous_partition is not None
+            and partition != previous_partition
+            and self.dit_switch_policy == "evict"
+        ):
+            _json_request("/free", {"unload_models": True, "free_memory": True})
+            print(f"ComfyUI model cache freed for partition switch to {partition}", flush=True)
+        self.current_task = task
+        self.current_partition = partition
+
     def generate(
         self,
         *,
         prompt: str,
+        task: str,
         reference_images: list[Path] | None = None,
         reference_videos: list[Path] | None = None,
         reference_audios: list[Path] | None = None,
+        first_frame: Path | None = None,
+        last_frame: Path | None = None,
+        loop: bool = False,
         aspect_ratio: str = "9:16",
         size: str = "preview",
         duration: float = 5.0,
         steps: int = 24,
         seed: int | None = None,
-        structured_prompt: bool = False,
+        structured_prompt: bool | None = None,
         include_audio: bool = True,
         output_codec: str = "mp4-h264",
         encode_quality: int = 26,
@@ -293,6 +307,8 @@ class H3Runtime:
         return_metrics: bool = False,
     ) -> Path | GenerationResult:
         total_started = time.monotonic()
+        task = normalize_task(task)
+        partition = task_partition(task)
         command = _comfy_command()
         print(
             "H3 execution config: "
@@ -307,43 +323,73 @@ class H3Runtime:
         reference_images = reference_images or []
         reference_videos = reference_videos or []
         reference_audios = reference_audios or []
-        reference_mode = bool(reference_images or reference_videos or reference_audios)
-        if not reference_mode:
-            raise ValueError("REF2VA requires at least one reference image, video, or audio clip")
+        reference_count = len(reference_images) + len(reference_videos) + len(reference_audios)
+        validate_inputs(
+            task=task,
+            steps=steps,
+            seed=seed,
+            first_frame=first_frame,
+            last_frame=last_frame,
+            loop=loop,
+            reference_count=reference_count,
+        )
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
-            raise ValueError("reference mode supports at most 9 images, 3 videos, and 3 audio clips")
-        validate_inputs(steps=steps, seed=seed)
+            raise ValueError("ref2va supports at most 9 images, 3 videos, and 3 audio clips")
         frames = aligned_frames(duration)
         width, height = dimensions(aspect_ratio, size)
         actual_seconds = frames / 24
         if seed is None:
             seed = random.SystemRandom().randint(0, 2**63 - 1)
+        prompt_has_first = task == TASK_FL2VA and first_frame is not None
+        prompt_has_last = task == TASK_FL2VA and (last_frame is not None or loop)
+        structured = structured_prompt if structured_prompt is not None else task != TASK_REF2VA
         formatted = format_h3_prompt(
             prompt,
             actual_seconds,
-            first_frame=False,
-            last_frame=False,
-            structured=structured_prompt,
+            first_frame=prompt_has_first,
+            last_frame=prompt_has_last,
+            structured=structured,
         )
-        reference_image_names = [self._stage_media(path, "ref-image", i) for i, path in enumerate(reference_images, 1)]
-        reference_video_names = [self._stage_media(path, "ref-video", i) for i, path in enumerate(reference_videos, 1)]
-        reference_audio_names = [self._stage_media(path, "ref-audio", i) for i, path in enumerate(reference_audios, 1)]
-        workflow_builder = build_raylight_workflow if getattr(self, "parallel_mode", "single") == "raylight" else build_workflow
-        graph = workflow_builder(
-            prompt=formatted,
-            width=width,
-            height=height,
-            frames=frames,
-            steps=steps,
-            seed=seed,
-            reference_image_names=reference_image_names,
-            reference_video_names=reference_video_names,
-            reference_audio_names=reference_audio_names,
-            cache=cache,
-        )
+        first_image_name: str | None = None
+        last_image_name: str | None = None
+        reference_image_names: list[str] = []
+        reference_video_names: list[str] = []
+        reference_audio_names: list[str] = []
         try:
-            sample_started = time.monotonic()
-            queued = _json_request("/prompt", {"prompt": graph})
+            first_image_name = self._stage_image(first_frame, "first-frame")
+            last_image_name = self._stage_image(last_frame, "last-frame")
+            reference_image_names = [
+                self._stage_media(path, "ref-image", index)
+                for index, path in enumerate(reference_images)
+            ]
+            reference_video_names = [
+                self._stage_media(path, "ref-video", index)
+                for index, path in enumerate(reference_videos)
+            ]
+            reference_audio_names = [
+                self._stage_media(path, "ref-audio", index)
+                for index, path in enumerate(reference_audios)
+            ]
+            graph = build_workflow(
+                prompt=formatted,
+                task=task,
+                width=width,
+                height=height,
+                frames=frames,
+                steps=steps,
+                seed=seed,
+                first_image_name=first_image_name,
+                last_image_name=last_image_name,
+                loop=loop,
+                reference_image_names=reference_image_names,
+                reference_video_names=reference_video_names,
+                reference_audio_names=reference_audio_names,
+                cache=cache,
+            )
+            with _ROUTE_LOCK:
+                self._prepare_generation(task, partition)
+                sample_started = time.monotonic()
+                queued = _json_request("/prompt", {"prompt": graph})
             prompt_id = queued.get("prompt_id")
             if not prompt_id:
                 raise RuntimeError(f"ComfyUI rejected workflow: {queued}")
@@ -369,8 +415,8 @@ class H3Runtime:
                     total_seconds = time.monotonic() - total_started
                     print(
                         f"generated {width}x{height} frames={frames} seconds={actual_seconds:.2f} "
-                        f"steps={steps} seed={seed} mode=ref2va backend={getattr(self, 'parallel_mode', 'single')} "
-                        f"total_seconds={total_seconds:.3f} "
+                        f"steps={steps} seed={seed} mode={task} partition={partition} backend=native/single "
+                        f"dit_switch={self.dit_switch_policy} total_seconds={total_seconds:.3f} "
                         f"cache={cache.profile if cache is not None else 'off'}",
                         flush=True,
                     )
@@ -378,6 +424,9 @@ class H3Runtime:
                         return output
                     metrics = {
                         "schema_version": 1,
+                        "task": task,
+                        "partition": partition,
+                        "dit_switch_policy": self.dit_switch_policy,
                         "total_seconds": round(total_seconds, 3),
                         "generation_seconds": round(sample_seconds, 3),
                         "encode_seconds": round(encode_seconds, 3),
@@ -394,6 +443,12 @@ class H3Runtime:
                     return GenerationResult(output, metrics)
             raise RuntimeError("generation exceeded 45 minute safety timeout")
         finally:
-            for name in (*reference_image_names, *reference_video_names, *reference_audio_names):
+            for name in (
+                first_image_name,
+                last_image_name,
+                *reference_image_names,
+                *reference_video_names,
+                *reference_audio_names,
+            ):
                 if name:
                     (COMFY_ROOT / "input" / name).unlink(missing_ok=True)

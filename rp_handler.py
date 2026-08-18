@@ -31,11 +31,11 @@ def _get_runtime() -> H3Runtime:
 def _public_https(url: str) -> None:
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
-        raise ValueError("image URLs must use https")
+        raise ValueError("media URLs must use https")
     for result in socket.getaddrinfo(parsed.hostname, parsed.port or 443):
         address = ipaddress.ip_address(result[4][0])
         if not address.is_global:
-            raise ValueError("image URL resolves to a private or reserved address")
+            raise ValueError("media URL resolves to a private or reserved address")
 
 
 def _download_media(url: str) -> Path:
@@ -44,10 +44,10 @@ def _download_media(url: str) -> Path:
     with urllib.request.urlopen(request, timeout=120) as response:
         length = int(response.headers.get("Content-Length", "0") or 0)
         if length > MAX_MEDIA_BYTES:
-            raise ValueError("reference media exceeds 512 MiB")
+            raise ValueError("media exceeds 512 MiB")
         data = response.read(MAX_MEDIA_BYTES + 1)
     if len(data) > MAX_MEDIA_BYTES:
-        raise ValueError("reference media exceeds 512 MiB")
+        raise ValueError("media exceeds 512 MiB")
     suffix = Path(urllib.parse.urlparse(url).path).suffix or ".png"
     fd, filename = tempfile.mkstemp(prefix="h3-input-", suffix=suffix)
     with os.fdopen(fd, "wb") as handle:
@@ -55,17 +55,50 @@ def _download_media(url: str) -> Path:
     return Path(filename)
 
 
+def _boolean(values: dict, name: str, default: bool) -> bool:
+    value = values.get(name, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
+def _optional_boolean(values: dict, name: str) -> bool | None:
+    if values.get(name) is None:
+        return None
+    return _boolean(values, name, False)
+
+
+def _download_one(values: dict, name: str) -> Path | None:
+    urls = media_urls(values, name)
+    if len(urls) > 1:
+        raise ValueError(f"{name} accepts at most one URL")
+    return _download_media(urls[0]) if urls else None
+
+
 def handler(event):
     values = event.get("input") or {}
     downloaded: list[Path] = []
     try:
         cache = authorize_tuning(values.get("_tuning"), values.get("_tuning_signature"))
+        first_frame = _download_one(values, "first_frame")
+        last_frame = _download_one(values, "last_frame")
         reference_images = [_download_media(url) for url in media_urls(values, "reference_images")]
         reference_videos = [_download_media(url) for url in media_urls(values, "reference_videos")]
         reference_audios = [_download_media(url) for url in media_urls(values, "reference_audios")]
-        downloaded.extend(reference_images + reference_videos + reference_audios)
+        downloaded.extend(
+            [path for path in (first_frame, last_frame) if path is not None]
+            + reference_images + reference_videos + reference_audios
+        )
         output = _get_runtime().generate(
             prompt=values.get("prompt", ""),
+            task=values.get("task"),
+            first_frame=first_frame,
+            last_frame=last_frame,
+            loop=_boolean(values, "loop", False),
             reference_images=reference_images,
             reference_videos=reference_videos,
             reference_audios=reference_audios,
@@ -74,8 +107,8 @@ def handler(event):
             duration=float(values.get("duration", 5)),
             steps=int(values.get("steps", 24)),
             seed=values.get("seed"),
-            structured_prompt=bool(values.get("structured_prompt", False)),
-            include_audio=bool(values.get("include_audio", True)),
+            structured_prompt=_optional_boolean(values, "structured_prompt"),
+            include_audio=_boolean(values, "include_audio", True),
             output_codec=values.get("output_codec", "mp4-h264"),
             encode_quality=int(values.get("encode_quality", 26)),
             cache=cache,

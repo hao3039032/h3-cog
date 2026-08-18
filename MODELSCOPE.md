@@ -1,30 +1,28 @@
-# ModelScope / single-GPU deployment
+# ModelScope / native ComfyUI deployment
 
-The runtime has a native single-GPU path and an explicit opt-in Raylight path:
+The runtime uses one native ComfyUI process and the first CUDA device:
 
 | Visible GPUs | Backend | Memory policy |
 | --- | --- | --- |
 | 1× 84GB-class card | native ComfyUI | HighVRAM keeps loaded weights resident |
 | 1× 48GB card | native ComfyUI | normal DynamicVRAM with staged component loading |
-| 1× RTX 4090 24GB | native ComfyUI | automatically enables low-VRAM mode for correctness |
-| 2+ cards | Raylight opt-in | FSDP2 shards transformer weights; Ulysses2 shards the token sequence |
+| 1× RTX 4090 24GB | native ComfyUI | normal DynamicVRAM with staged component loading |
 
-`H3_PARALLEL_MODE=single` is the default. Set `raylight` to require exactly the
-distributed path and fail early if fewer than two GPUs or the Raylight nodes
-are available. Set `auto` only when two-GPU Raylight selection is wanted.
+`H3_PARALLEL_MODE` is no longer needed. Retired values
+`raylight/auto/fsdp/dual` fail startup with an explicit removal error; unset the
+variable or use `single` for compatibility.
 
-The single-card path is functional, but a 48GB card cannot keep the 20.97GB
-transformer, 27.14GB INT8 text encoder, and both VAEs resident simultaneously.
-It therefore needs at least 64GB of system RAM (96GB is recommended) and will
-stage components during generation. Both modes default to 480p (`preview`),
-MP4/H.264, and one generation at a time.
+The single-card path is functional, but a 48GB card cannot keep either 20.97GB
+DiT, the 27.14GB INT8 text encoder, and both VAEs resident simultaneously. It
+therefore needs at least 96GB of system RAM and will stage components during
+generation. All tasks default to 480p (`preview`), MP4/H.264, and one
+generation at a time.
 
-Set `H3_LOWVRAM=0` only to experiment with normal DynamicVRAM on a 24GB card;
-the safe automatic default is low-VRAM mode. GPUs with at least 28GB keep the
-existing normal DynamicVRAM policy unless `H3_LOWVRAM=1` is explicitly set.
-GPUs reporting at least 80GiB use ComfyUI's HighVRAM mode so the INT8 weights can
-remain on the card after their first load. Set `H3_HIGHVRAM=0` to compare the
-DynamicVRAM path; `H3_LOWVRAM=1` still takes precedence as the emergency mode.
+`H3_LOWVRAM` is retired and ignored. GPUs reporting at least 80GiB use
+ComfyUI's HighVRAM mode so both INT8 DiTs can potentially remain warm; set
+`H3_HIGHVRAM=0` to compare the DynamicVRAM path. Task switches use
+`H3_DIT_SWITCH_POLICY=auto` by default and do not call ComfyUI `/free`. Use
+`evict` only for memory-pressure diagnostics.
 The Studio image rebuilds SageAttention for SM80, SM89, and SM120. SM120 needs
 CUDA toolkit 12.8 or newer. On an SM120 RTX 6000 D / RTX PRO 6000-class card,
 compare SageAttention against PyTorch SDPA with the same seed before promoting
@@ -33,23 +31,23 @@ accelerated output.
 ## Gradio Studio entry point
 
 The ModelScope Studio entry file is `app.py`. It lazily starts ComfyUI on the
-first request. The 59.13GB weight set must already be provisioned at
+first request. The 80.10GB weight set must already be provisioned at
 `WEIGHTS_DIR`; missing files fail that initialization with their full paths.
 Configure these environment variables:
 
 ```text
 MINIMAX_H3_LICENSE_ACCEPTED=1
-H3_PARALLEL_MODE=single
 H3_VIDEO_VAE_PRECISION=fp32
+H3_DIT_SWITCH_POLICY=auto
 WEIGHTS_DIR=/persistent-volume/models
 PORT=7860
 ```
 
 The deployment image must contain CUDA 12.8, PyTorch, ComfyUI v0.31.0 at the
-commit in `cog.yaml`, and the pinned Raylight custom node. A plain Gradio SDK
-image is not
-enough. `Dockerfile.modelscope` derives from the already baked REF2VA image so
-the four weights are not assembled again:
+commit in `cog.yaml`. A plain Gradio SDK image is not enough.
+`Dockerfile.modelscope` derives from the already baked H3 image. If that base
+still contains only the REF2VA DiT, provision the FL2VA file on the same
+persistent `WEIGHTS_DIR` before startup:
 
 ```sh
 docker build -f Dockerfile.modelscope -t ghcr.io/OWNER/minimax-h3:modelscope-single .
@@ -57,11 +55,11 @@ docker push ghcr.io/OWNER/minimax-h3:modelscope-single
 ```
 
 Publish it to a registry ModelScope can pull, expose port 7860, and give the
-container all selected GPUs plus adequate shared memory. The separate
+container adequate shared memory. The separate
 `cog.yaml` remains available when a Cog/Replicate-compatible image is needed.
 
 For scale-to-zero, preserve `WEIGHTS_DIR` on a persistent volume. Otherwise
-every cold worker must be provisioned with roughly 59.13GB before it can start.
+every cold worker must be provisioned with roughly 80.10GB before it can start.
 Set `H3_VIDEO_VAE_PRECISION=fp16` only for a storage-constrained comparison
 worker. Provision the deterministic Comfy-native FP32 artifact from
 `Austusm/minimax_h3_video_vae` (`10,415,548,688` bytes, SHA-256
@@ -82,7 +80,7 @@ ssh root@HOST 'chmod 755 /root/start_h3.sh /etc/autodl.sh'
 
 The platform invokes `/etc/autodl.sh` through its `customer-cmd` supervisor
 program. The wrapper runs the Gradio service on port 6006 and forwards stops to
-the ComfyUI/Ray process group so lazy-started workers cannot outlive a service
+the ComfyUI process group so a lazy-started worker cannot outlive a service
 restart.
 
 Some reverse proxies publish the service on a non-standard HTTPS port but omit

@@ -28,6 +28,13 @@ def test_reference_weight_metadata_matches_verified_source():
     assert entry["url"].endswith("/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors")
 
 
+def test_fl2va_weight_metadata_matches_verified_source():
+    entry = weights.VERIFIED_WEIGHTS[weights.FL2VA_RELATIVE]
+    assert entry["size"] == 20_970_379_616
+    assert entry["sha256"] == "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a"
+    assert entry["url"].endswith("/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors")
+
+
 def test_weight_sources_are_pinned_to_modelscope_without_nvfp4():
     assert set(weights.FILES) == {
         "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
@@ -88,3 +95,20 @@ def test_missing_reference_weight_fails_with_explicit_path(monkeypatch, tmp_path
 
     with pytest.raises(FileNotFoundError, match=weights.REF2VA_RELATIVE):
         weights.ensure_reference_weight()
+
+
+def test_both_diffusion_weights_are_linked_for_task_routing(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+
+    for relative in weights.DIFFUSION_RELATIVES:
+        destination = tmp_path / "MiniMax-H3" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"operational-data")
+
+    installed = weights.ensure_diffusion_weights()
+    assert set(installed) == set(weights.DIFFUSION_RELATIVES)
+    for relative in weights.DIFFUSION_RELATIVES:
+        target = tmp_path / "comfy" / "models" / "diffusion_models" / Path(relative).name
+        assert target.resolve() == installed[relative].resolve()
