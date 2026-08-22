@@ -1,6 +1,6 @@
 import pytest
 
-from h3_media import encode_profiles
+from h3_media import audio_profile, encode_profiles
 
 
 def test_av1_prefers_5090_nvenc_then_svt_fallback():
@@ -16,3 +16,8 @@ def test_h264_has_cpu_fallback():
     assert profiles[-1][1] == "libx264"
     with pytest.raises(ValueError):
         encode_profiles("vp9", 26, set())
+
+
+def test_mp4_copies_native_aac_but_webm_encodes_opus():
+    assert audio_profile("mp4") == ["-c:a", "copy"]
+    assert audio_profile("webm") == ["-c:a", "libopus", "-b:a", "160k"]

@@ -39,7 +39,7 @@ does not permit it.
 - optional SageAttention when supplied by the image operator, with PyTorch
   attention fallback and ComfyUI DynamicVRAM on every GPU size.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
-  fallback. Native audio is remuxed as Opus or AAC.
+  fallback. Native AAC is stream-copied into MP4; WebM encodes it once as Opus.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
 
 H3's current open release is dense full-attention. MiniMax says sparse

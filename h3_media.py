@@ -42,6 +42,13 @@ def encode_profiles(codec: str, quality: int, encoders: set[str]) -> tuple[str, 
     return "mp4", profiles
 
 
+def audio_profile(extension: str) -> list[str]:
+    """Copy ComfyUI's native AAC into MP4; WebM requires Opus."""
+    if extension == "mp4":
+        return ["-c:a", "copy"]
+    return ["-c:a", "libopus", "-b:a", "160k"]
+
+
 def encode_video(source: Path, codec: str, quality: int, include_audio: bool) -> Path:
     extension, profiles = encode_profiles(codec, quality, available_encoders())
     output = Path(tempfile.mkdtemp(prefix="h3-output-")) / f"video.{extension}"
@@ -52,7 +59,7 @@ def encode_video(source: Path, codec: str, quality: int, include_audio: bool) ->
             command += ["-map", "0:a?"]
         command += profile
         if include_audio:
-            command += ["-c:a", "libopus" if extension == "webm" else "aac", "-b:a", "160k"]
+            command += audio_profile(extension)
         else:
             command += ["-an"]
         if extension == "mp4":
