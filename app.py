@@ -81,6 +81,7 @@ def generate_video(
     size: str,
     duration: float,
     steps: int,
+    sol_profile: str,
     seed: str | None,
     include_audio: bool,
 ) -> tuple[str, str]:
@@ -112,6 +113,7 @@ def generate_video(
                 size=size,
                 duration=float(duration),
                 steps=int(steps),
+                sol_profile=sol_profile,
                 seed=resolved_seed,
                 structured_prompt=task != "ref2va",
                 include_audio=include_audio,
@@ -120,7 +122,7 @@ def generate_video(
         return (
             str(output),
             f"完成 · task={task} · backend={runtime.parallel_mode} · "
-            f"seed={resolved_seed}",
+            f"sol={sol_profile} · seed={resolved_seed}",
         )
     except gr.Error:
         raise
@@ -178,6 +180,11 @@ def build_demo() -> gr.Blocks:
                     size = gr.Dropdown(["preview", "balanced", "native"], value="preview", label="尺寸（preview 为 480p）")
                     duration = gr.Slider(4, 15, value=5, step=0.5, label="时长（秒）")
                     steps = gr.Slider(8, 60, value=24, step=1, label="采样步数")
+                    sol_profile = gr.Dropdown(
+                        ["off", "conservative", "balanced"],
+                        value="off",
+                        label="Sol-Attn 实验档位",
+                    )
                 with gr.Row():
                     seed = gr.Textbox(value="", label="Seed（留空随机）")
                     include_audio = gr.Checkbox(value=True, label="保留生成音频")
@@ -214,6 +221,7 @@ def build_demo() -> gr.Blocks:
                 size,
                 duration,
                 steps,
+                sol_profile,
                 seed,
                 include_audio,
             ],

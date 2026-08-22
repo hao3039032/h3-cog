@@ -3,7 +3,14 @@ from pathlib import Path
 import pytest
 
 from h3_tuning import CacheTuning
-from h3_workflow import build_workflow, infer_task, normalize_task, task_partition, validate_inputs
+from h3_workflow import (
+    build_workflow,
+    infer_task,
+    normalize_sol_profile,
+    normalize_task,
+    task_partition,
+    validate_inputs,
+)
 
 
 def test_t2va_selects_fl2va_partition_and_image_conditioning():
@@ -120,6 +127,65 @@ def test_easycache_is_inserted_before_media_loader_nodes():
     assert graph["6"]["inputs"]["model"] == ["15", 0]
     assert graph["9"]["inputs"]["model"] == ["15", 0]
     assert graph["16"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
+
+
+def test_sol_conservative_profile_is_inserted_with_sage_safe_fallback_settings():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=864,
+        height=480,
+        frames=124,
+        steps=20,
+        seed=9,
+        sol_profile="conservative",
+    )
+    assert graph["15"]["class_type"] == "SolAttnPatch"
+    assert graph["15"]["inputs"] == {
+        "model": ["1", 0],
+        "tau": 1.0,
+        "start_percent": 0.20,
+        "end_percent": 0.90,
+        "min_tokens": 4096,
+        "int8_qk": True,
+        "sink_conditioning": "exact_kv_and_rows",
+        "morton": True,
+        "morton_curve": "2d_frame",
+        "int8_pv": False,
+        "verbose": True,
+        "use_tma": False,
+        "dense_blocks": "0-2,-1",
+    }
+    assert graph["6"]["inputs"]["model"] == ["15", 0]
+    assert graph["9"]["inputs"]["model"] == ["15", 0]
+
+
+def test_sol_balanced_profile_composes_before_easycache():
+    cache = CacheTuning("balanced", 0.12, 0.15, 0.9, False, "sweep-1", "balanced")
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=864,
+        height=480,
+        frames=124,
+        steps=20,
+        seed=9,
+        sol_profile="balanced",
+        cache=cache,
+    )
+    assert graph["15"]["class_type"] == "SolAttnPatch"
+    assert graph["15"]["inputs"]["tau"] == 1.3
+    assert graph["15"]["inputs"]["int8_pv"] is True
+    assert graph["16"]["class_type"] == "EasyCache"
+    assert graph["16"]["inputs"]["model"] == ["15", 0]
+    assert graph["6"]["inputs"]["model"] == ["16", 0]
+
+
+def test_sol_profile_defaults_off_and_rejects_unknown_values():
+    assert normalize_sol_profile("") == "off"
+    assert normalize_sol_profile(" Conservative ") == "conservative"
+    with pytest.raises(ValueError, match="sol_profile must be one of"):
+        normalize_sol_profile("fast")
 
 
 def test_task_partitions_follow_sglang_contract():

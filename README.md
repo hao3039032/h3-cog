@@ -38,12 +38,15 @@ does not permit it.
   reduced pixel area are exposed for previews.
 - optional SageAttention when supplied by the image operator, with PyTorch
   attention fallback and ComfyUI DynamicVRAM on every GPU size.
+- opt-in Kijai Sol-Attn profiles for training-free sparse-attention A/B tests;
+  SageAttention remains the dense and error fallback.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
   fallback. Native audio is remuxed as Opus or AAC.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
 
-H3's current open release is dense full-attention. MiniMax says sparse
-attention will follow. The public path does not apply a lossy cache. Operator
+H3's current open release is dense full-attention. Sol-Attn is an experimental,
+lossy runtime sparsification path rather than a new H3 checkpoint. The default
+path remains dense and does not apply a lossy cache. Operator
 sweeps can use ComfyUI's built-in EasyCache behind a short-lived signed
 envelope, described below. We do not apply CG-Taylor or a "latent teleport"
 cache: neither has been validated as an H3-compatible node against its joint
@@ -69,6 +72,7 @@ treating it as a quality-neutral default for production traffic.
 | `size` | `preview` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
+| `sol_profile` | `off` | Experimental `off`, `conservative`, or `balanced`; positive profiles change attention numerics |
 | `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
 | `include_audio` | `true` | Keep or strip H3's generated stereo audio |
 | `output_codec` | `mp4-h264` | `webm-av1` or `mp4-h264` |
@@ -105,6 +109,24 @@ comparison on supported cards. `H3_LOWVRAM` is retired and ignored;
 FP32 matmuls stay strict by default. Set `H3_FP32_MATMUL_TF32=1` to allow
 cuBLAS TF32 for the FP32 VideoVAE; this changes numerics and is intended for
 same-seed speed and quality A/B tests.
+
+### Experimental Sol-Attn profiles
+
+The image pins `kijai/ComfyUI-SolAttn_triton` at commit
+`dfc2e31a41afd72bd53dd2137fc8b2931d5ec192`. `sol_profile=off` does not insert
+the node. Both enabled profiles apply Sol-Attn only from 20% through 90% of the
+sampling trajectory, keep blocks `0-2` and the final block dense, use H3's 2D
+frame Morton order, and keep conditioning plus audio query rows exact. The
+`conservative` profile uses `tau=1.0` and BF16 P/V; `balanced` uses `tau=1.3`
+and enables INT8 P/V. Both use INT8 Q/K and retain the existing SageAttention
+path for dense windows, ineligible calls, and kernel failures.
+
+Sol-Attn compiles and autotunes Triton kernels for each new token length. Do
+not time the first request at a new resolution/frame count; compare the second
+warm request against an interleaved same-seed `off` run. This is approximate
+sparse attention, so promotion requires review of speech, synchronized sound,
+fast motion, FL2VA endpoint fidelity, and Ref2VA identity/reference adherence.
+The branch makes no production speed or quality claim before those GPU runs.
 
 ## Local Cog usage
 
@@ -258,4 +280,5 @@ and poster files and upserts stable `minimax-h3:<demo-id>` gallery records. Use
 - [MiniMax H3 model card and license](https://huggingface.co/MiniMaxAI/MiniMax-H3)
 - [ComfyUI H3 workflow documentation](https://docs.comfy.org/tutorials/video/minimax/minimax-h3)
 - [ComfyUI-packaged checkpoints](https://huggingface.co/Comfy-Org/MiniMax-H3)
+- [Kijai ComfyUI Sol-Attn](https://github.com/kijai/ComfyUI-SolAttn_triton)
 - [MiniMax base-mode prompt guide](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md)

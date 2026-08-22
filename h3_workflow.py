@@ -33,6 +33,21 @@ ASPECTS = {
     "21:9": (1344, 576),
 }
 SCALES = {"preview": 0.40, "balanced": 0.58, "native": 1.0}
+SOL_PROFILES = {
+    "off": None,
+    "conservative": {
+        "tau": 1.0,
+        "int8_pv": False,
+        "sink_conditioning": "exact_kv_and_rows",
+        "dense_blocks": "0-2,-1",
+    },
+    "balanced": {
+        "tau": 1.3,
+        "int8_pv": True,
+        "sink_conditioning": "exact_kv_and_rows",
+        "dense_blocks": "0-2,-1",
+    },
+}
 
 
 def aligned_frames(seconds: float) -> int:
@@ -67,6 +82,13 @@ def task_partition(task: str) -> str:
     return TASK_PARTITIONS[normalize_task(task)]
 
 
+def normalize_sol_profile(profile: str) -> str:
+    normalized = str(profile or "off").strip().lower()
+    if normalized not in SOL_PROFILES:
+        raise ValueError(f"sol_profile must be one of {list(SOL_PROFILES)}")
+    return normalized
+
+
 def infer_task(
     *,
     first_frame: Path | None = None,
@@ -94,6 +116,7 @@ def validate_inputs(
     last_frame: Path | None = None,
     loop: bool = False,
     reference_count: int = 0,
+    sol_profile: str = "off",
 ) -> None:
     normalized_task = normalize_task(task)
     inferred_task = infer_task(
@@ -123,6 +146,7 @@ def validate_inputs(
         raise ValueError("steps must be between 8 and 60")
     if seed is not None and not 0 <= int(seed) <= 2**63 - 1:
         raise ValueError("seed must be between 0 and 2^63-1")
+    normalize_sol_profile(sol_profile)
 
 
 def _scaled_image(graph: dict[str, dict], node_id: str, name: str, width: int, height: int) -> tuple[str, dict]:
@@ -157,8 +181,10 @@ def build_workflow(
     reference_video_names: list[str] | None = None,
     reference_audio_names: list[str] | None = None,
     cache: CacheTuning | None = None,
+    sol_profile: str = "off",
 ) -> dict[str, dict]:
     task = normalize_task(task)
+    sol_profile = normalize_sol_profile(sol_profile)
     reference_image_names = reference_image_names or []
     reference_video_names = reference_video_names or []
     reference_audio_names = reference_audio_names or []
@@ -170,6 +196,7 @@ def build_workflow(
         last_frame=Path(last_image_name) if last_image_name else None,
         loop=loop,
         reference_count=len(reference_image_names) + len(reference_video_names) + len(reference_audio_names),
+        sol_profile=sol_profile,
     )
 
     if task == TASK_REF2VA:
@@ -234,20 +261,47 @@ def build_workflow(
         },
     }
     next_id = 15
+    model_link: list[str | int] = ["1", 0]
+
+    sol = SOL_PROFILES[sol_profile]
+    if sol is not None:
+        graph[str(next_id)] = {
+            "class_type": "SolAttnPatch",
+            "inputs": {
+                "model": model_link,
+                "tau": sol["tau"],
+                "start_percent": 0.20,
+                "end_percent": 0.90,
+                "min_tokens": 4096,
+                "int8_qk": True,
+                "sink_conditioning": sol["sink_conditioning"],
+                "morton": True,
+                "morton_curve": "2d_frame",
+                "int8_pv": sol["int8_pv"],
+                "verbose": True,
+                "use_tma": False,
+                "dense_blocks": sol["dense_blocks"],
+            },
+        }
+        model_link = [str(next_id), 0]
+        next_id += 1
+
     if cache is not None:
         graph[str(next_id)] = {
             "class_type": "EasyCache",
             "inputs": {
-                "model": ["1", 0],
+                "model": model_link,
                 "reuse_threshold": cache.reuse_threshold,
                 "start_percent": cache.start_percent,
                 "end_percent": cache.end_percent,
                 "verbose": cache.verbose,
             },
         }
-        graph["6"]["inputs"]["model"] = [str(next_id), 0]
-        graph["9"]["inputs"]["model"] = [str(next_id), 0]
+        model_link = [str(next_id), 0]
         next_id += 1
+
+    graph["6"]["inputs"]["model"] = model_link
+    graph["9"]["inputs"]["model"] = model_link
 
     if task != TASK_REF2VA:
         first_output_id: str | None = None

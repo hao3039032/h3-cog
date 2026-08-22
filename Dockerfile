@@ -7,6 +7,7 @@ FROM ${PYTHON_IMAGE}
 ARG COMFYUI_VERSION=v0.31.0
 ARG COMFYUI_REPO=https://github.com/hao3039032/ComfyUI.git
 ARG COMFYUI_COMMIT=d648863a30fe8122ba609cfb7319e2b773809575
+ARG SOL_ATTN_COMMIT=dfc2e31a41afd72bd53dd2137fc8b2931d5ec192
 ARG SAGEATTENTION_COMMIT=eb615cf6cf4d221338033340ee2de1c37fbdba4a
 ARG SAGE_CUDA_ARCH_LIST=8.9;12.0
 ARG MAX_JOBS=4
@@ -32,6 +33,11 @@ RUN python -m pip install \
 
 RUN git clone "${COMFYUI_REPO}" /opt/ComfyUI \
     && git -C /opt/ComfyUI checkout "${COMFYUI_COMMIT}"
+
+RUN git clone https://github.com/kijai/ComfyUI-SolAttn_triton.git \
+        /opt/ComfyUI/custom_nodes/ComfyUI-SolAttn_triton \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-SolAttn_triton \
+        checkout "${SOL_ATTN_COMMIT}"
 
 COPY docker/constraints.txt /tmp/constraints.txt
 RUN python -m pip install -c /tmp/constraints.txt \
