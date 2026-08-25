@@ -94,6 +94,7 @@ def validate_inputs(
     last_frame: Path | None = None,
     loop: bool = False,
     reference_count: int = 0,
+    fused_modulation: bool = True,
 ) -> None:
     normalized_task = normalize_task(task)
     inferred_task = infer_task(
@@ -123,6 +124,8 @@ def validate_inputs(
         raise ValueError("steps must be between 8 and 60")
     if seed is not None and not 0 <= int(seed) <= 2**63 - 1:
         raise ValueError("seed must be between 0 and 2^63-1")
+    if not isinstance(fused_modulation, bool):
+        raise ValueError("fused_modulation must be a boolean")
 
 
 def _scaled_image(graph: dict[str, dict], node_id: str, name: str, width: int, height: int) -> tuple[str, dict]:
@@ -157,6 +160,7 @@ def build_workflow(
     reference_video_names: list[str] | None = None,
     reference_audio_names: list[str] | None = None,
     cache: CacheTuning | None = None,
+    fused_modulation: bool = True,
 ) -> dict[str, dict]:
     task = normalize_task(task)
     reference_image_names = reference_image_names or []
@@ -170,6 +174,7 @@ def build_workflow(
         last_frame=Path(last_image_name) if last_image_name else None,
         loop=loop,
         reference_count=len(reference_image_names) + len(reference_video_names) + len(reference_audio_names),
+        fused_modulation=fused_modulation,
     )
 
     if task == TASK_REF2VA:
@@ -234,20 +239,35 @@ def build_workflow(
         },
     }
     next_id = 15
+    model_link: list[str | int] = ["1", 0]
+
+    if fused_modulation:
+        graph[str(next_id)] = {
+            "class_type": "MiniMaxH3FusedModulation",
+            "inputs": {
+                "model": model_link,
+                "enabled": True,
+            },
+        }
+        model_link = [str(next_id), 0]
+        next_id += 1
+
     if cache is not None:
         graph[str(next_id)] = {
             "class_type": "EasyCache",
             "inputs": {
-                "model": ["1", 0],
+                "model": model_link,
                 "reuse_threshold": cache.reuse_threshold,
                 "start_percent": cache.start_percent,
                 "end_percent": cache.end_percent,
                 "verbose": cache.verbose,
             },
         }
-        graph["6"]["inputs"]["model"] = [str(next_id), 0]
-        graph["9"]["inputs"]["model"] = [str(next_id), 0]
+        model_link = [str(next_id), 0]
         next_id += 1
+
+    graph["6"]["inputs"]["model"] = model_link
+    graph["9"]["inputs"]["model"] = model_link
 
     if task != TASK_REF2VA:
         first_output_id: str | None = None

@@ -81,6 +81,7 @@ def generate_video(
     size: str,
     duration: float,
     steps: int,
+    fused_modulation: bool,
     seed: str | None,
     include_audio: bool,
 ) -> tuple[str, str]:
@@ -112,6 +113,7 @@ def generate_video(
                 size=size,
                 duration=float(duration),
                 steps=int(steps),
+                fused_modulation=bool(fused_modulation),
                 seed=resolved_seed,
                 structured_prompt=task != "ref2va",
                 include_audio=include_audio,
@@ -120,6 +122,7 @@ def generate_video(
         return (
             str(output),
             f"完成 · task={task} · backend={runtime.parallel_mode} · "
+            f"fused_modulation={'on' if fused_modulation else 'off'} · "
             f"seed={resolved_seed}",
         )
     except gr.Error:
@@ -181,6 +184,10 @@ def build_demo() -> gr.Blocks:
                 with gr.Row():
                     seed = gr.Textbox(value="", label="Seed（留空随机）")
                     include_audio = gr.Checkbox(value=True, label="保留生成音频")
+                    fused_modulation = gr.Checkbox(
+                        value=True,
+                        label="Fused Modulation（逐位精确）",
+                    )
                 submit = gr.Button("生成视频", variant="primary")
             with gr.Column(scale=2):
                 output = gr.Video(label="输出 MP4")
@@ -214,6 +221,7 @@ def build_demo() -> gr.Blocks:
                 size,
                 duration,
                 steps,
+                fused_modulation,
                 seed,
                 include_audio,
             ],

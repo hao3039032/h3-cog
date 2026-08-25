@@ -18,6 +18,12 @@ def test_t2va_selects_fl2va_partition_and_image_conditioning():
     )
     assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
     assert graph["5"]["class_type"] == "MiniMaxH3ImageToVideo"
+    assert graph["15"] == {
+        "class_type": "MiniMaxH3FusedModulation",
+        "inputs": {"model": ["1", 0], "enabled": True},
+    }
+    assert graph["6"]["inputs"]["model"] == ["15", 0]
+    assert graph["9"]["inputs"]["model"] == ["15", 0]
     assert "first_frame" not in graph["5"]["inputs"]
     assert "last_frame" not in graph["5"]["inputs"]
 
@@ -36,19 +42,19 @@ def test_fl2va_preprocesses_both_keyframes_to_target_canvas():
     )
     assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
     assert graph["5"]["class_type"] == "MiniMaxH3ImageToVideo"
-    assert graph["15"] == {"class_type": "LoadImage", "inputs": {"image": "first.png"}}
-    assert graph["16"]["class_type"] == "ImageScale"
-    assert graph["16"]["inputs"] == {
-        "image": ["15", 0],
+    assert graph["16"] == {"class_type": "LoadImage", "inputs": {"image": "first.png"}}
+    assert graph["17"]["class_type"] == "ImageScale"
+    assert graph["17"]["inputs"] == {
+        "image": ["16", 0],
         "upscale_method": "lanczos",
         "width": 864,
         "height": 480,
         "crop": "center",
     }
-    assert graph["17"] == {"class_type": "LoadImage", "inputs": {"image": "last.png"}}
-    assert graph["18"]["class_type"] == "ImageScale"
-    assert graph["5"]["inputs"]["first_frame"] == ["16", 0]
-    assert graph["5"]["inputs"]["last_frame"] == ["18", 0]
+    assert graph["18"] == {"class_type": "LoadImage", "inputs": {"image": "last.png"}}
+    assert graph["19"]["class_type"] == "ImageScale"
+    assert graph["5"]["inputs"]["first_frame"] == ["17", 0]
+    assert graph["5"]["inputs"]["last_frame"] == ["19", 0]
 
 
 def test_fl2va_loop_reuses_scaled_first_frame_as_last_frame():
@@ -63,9 +69,9 @@ def test_fl2va_loop_reuses_scaled_first_frame_as_last_frame():
         first_image_name="first.png",
         loop=True,
     )
-    assert graph["5"]["inputs"]["first_frame"] == ["16", 0]
-    assert graph["5"]["inputs"]["last_frame"] == ["16", 0]
-    assert "17" not in graph
+    assert graph["5"]["inputs"]["first_frame"] == ["17", 0]
+    assert graph["5"]["inputs"]["last_frame"] == ["17", 0]
+    assert "18" not in graph
 
 
 def test_ref2va_uses_reference_dit_and_zero_based_autogrow_keys():
@@ -87,19 +93,19 @@ def test_ref2va_uses_reference_dit_and_zero_based_autogrow_keys():
     assert graph["5"]["class_type"] == "MiniMaxH3ReferenceToVideo"
     assert graph["5"]["inputs"]["audio_vae"] == ["4", 0]
     assert graph["8"]["inputs"]["sampler_name"] == "res_multistep"
-    assert graph["9"]["inputs"] == {"model": ["1", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0}
+    assert graph["9"]["inputs"] == {"model": ["15", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0}
     assert graph["13"]["inputs"]["audio"] == ["12", 0]
     assert graph["14"]["inputs"]["codec"] == "h264"
     assert graph["14"]["inputs"]["codec.encoding"] == "re-encode"
     assert graph["14"]["inputs"]["codec.encoding.crf"] == 17.0
-    assert graph["15"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
-    assert graph["16"] == {"class_type": "LoadVideo", "inputs": {"file": "motion.mp4"}}
-    assert graph["17"] == {"class_type": "GetVideoComponents", "inputs": {"video": ["16", 0]}}
-    assert graph["5"]["inputs"]["ref_images.ref_image_0"] == ["15", 0]
-    assert graph["5"]["inputs"]["ref_videos.ref_video_0"] == ["17", 0]
-    assert graph["5"]["inputs"]["ref_video_audios.ref_video_audio_0"] == ["17", 1]
-    assert graph["18"] == {"class_type": "LoadAudio", "inputs": {"audio": "voice.wav"}}
-    assert graph["5"]["inputs"]["ref_audios.ref_audio_0"] == ["18", 0]
+    assert graph["16"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
+    assert graph["17"] == {"class_type": "LoadVideo", "inputs": {"file": "motion.mp4"}}
+    assert graph["18"] == {"class_type": "GetVideoComponents", "inputs": {"video": ["17", 0]}}
+    assert graph["5"]["inputs"]["ref_images.ref_image_0"] == ["16", 0]
+    assert graph["5"]["inputs"]["ref_videos.ref_video_0"] == ["18", 0]
+    assert graph["5"]["inputs"]["ref_video_audios.ref_video_audio_0"] == ["18", 1]
+    assert graph["19"] == {"class_type": "LoadAudio", "inputs": {"audio": "voice.wav"}}
+    assert graph["5"]["inputs"]["ref_audios.ref_audio_0"] == ["19", 0]
 
 
 def test_easycache_is_inserted_before_media_loader_nodes():
@@ -115,11 +121,28 @@ def test_easycache_is_inserted_before_media_loader_nodes():
         reference_image_names=["identity.png"],
         cache=cache,
     )
-    assert graph["15"]["class_type"] == "EasyCache"
-    assert graph["15"]["inputs"]["model"] == ["1", 0]
-    assert graph["6"]["inputs"]["model"] == ["15", 0]
-    assert graph["9"]["inputs"]["model"] == ["15", 0]
-    assert graph["16"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
+    assert graph["15"]["class_type"] == "MiniMaxH3FusedModulation"
+    assert graph["16"]["class_type"] == "EasyCache"
+    assert graph["16"]["inputs"]["model"] == ["15", 0]
+    assert graph["6"]["inputs"]["model"] == ["16", 0]
+    assert graph["9"]["inputs"]["model"] == ["16", 0]
+    assert graph["17"] == {"class_type": "LoadImage", "inputs": {"image": "identity.png"}}
+
+
+def test_fused_modulation_can_be_disabled_for_eager_ab_comparison():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=768,
+        height=768,
+        frames=124,
+        steps=20,
+        seed=9,
+        fused_modulation=False,
+    )
+    assert all(node["class_type"] != "MiniMaxH3FusedModulation" for node in graph.values())
+    assert graph["6"]["inputs"]["model"] == ["1", 0]
+    assert graph["9"]["inputs"]["model"] == ["1", 0]
 
 
 def test_task_partitions_follow_sglang_contract():
@@ -162,3 +185,14 @@ def test_invalid_task_inputs_are_rejected(kwargs):
 
 def test_fl2va_accepts_last_frame_only():
     validate_inputs(task="fl2va", steps=20, seed=1, last_frame=Path("last.png"))
+
+
+@pytest.mark.parametrize("enabled", [0, 1, "true", None])
+def test_fused_modulation_requires_a_boolean(enabled):
+    with pytest.raises(ValueError, match="fused_modulation"):
+        validate_inputs(
+            task="t2va",
+            steps=20,
+            seed=1,
+            fused_modulation=enabled,
+        )

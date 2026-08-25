@@ -27,6 +27,10 @@ def test_generation_metrics_cover_output_identity_and_task_route(tmp_path, monke
                 "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
             )
             assert payload["prompt"]["5"]["inputs"]["prompt"] == "test"
+            assert payload["prompt"]["15"] == {
+                "class_type": "MiniMaxH3FusedModulation",
+                "inputs": {"model": ["1", 0], "enabled": True},
+            }
             return {"prompt_id": "job-1"}
         return {"job-1": {"status": {"completed": True}, "outputs": {}}}
 
@@ -46,6 +50,7 @@ def test_generation_metrics_cover_output_identity_and_task_route(tmp_path, monke
     assert result.metrics["partition"] == "ref2va"
     assert result.metrics["dit_switch_policy"] == "auto"
     assert result.metrics["cache"] == {"profile": "off"}
+    assert result.metrics["fused_modulation"] is True
     assert result.metrics["output_bytes"] == len(b"encoded-video")
     assert result.metrics["output_sha256"] == hashlib.sha256(b"encoded-video").hexdigest()
     assert result.metrics["generation_seconds"] >= 0
@@ -56,6 +61,7 @@ def test_product_defaults_are_vertical_preview_mp4():
     defaults = inspect.signature(H3Runtime.generate).parameters
     assert defaults["task"].default is inspect.Parameter.empty
     assert defaults["steps"].default == 24
+    assert defaults["fused_modulation"].default is True
     assert defaults["aspect_ratio"].default == "9:16"
     assert defaults["size"].default == "preview"
     assert defaults["structured_prompt"].default is None
@@ -239,7 +245,7 @@ def test_generation_stages_and_cleans_fl_keyframes(tmp_path, monkeypatch):
 
     def fake_json_request(path, payload=None, timeout=60):
         if path == "/prompt":
-            staged.append(payload["prompt"]["15"]["inputs"]["image"])
+            staged.append(payload["prompt"]["16"]["inputs"]["image"])
             assert payload["prompt"]["5"]["inputs"]["prompt"].startswith(
                 "How the reference pictures align"
             )

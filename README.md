@@ -38,6 +38,8 @@ does not permit it.
   reduced pixel area are exposed for previews.
 - optional SageAttention when supplied by the image operator, with PyTorch
   attention fallback and ComfyUI DynamicVRAM on every GPU size.
+- default-on, bit-exact H3 fused modulation for lower AdaLN and gated-residual
+  overhead, with an explicit per-request opt-out for A/B validation.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
   fallback. Native AAC is stream-copied into MP4; WebM encodes it once as Opus.
 - Standard Cog HTTP plus a RunPod Serverless handler using the same runtime.
@@ -69,6 +71,7 @@ treating it as a quality-neutral default for production traffic.
 | `size` | `preview` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
+| `fused_modulation` | `true` | Enables bit-exact H3 AdaLN and gated-residual Triton fusion |
 | `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
 | `include_audio` | `true` | Keep or strip H3's generated stereo audio |
 | `output_codec` | `mp4-h264` | `webm-av1` or `mp4-h264` |
@@ -105,6 +108,15 @@ comparison on supported cards. `H3_LOWVRAM` is retired and ignored;
 FP32 matmuls stay strict by default. Set `H3_FP32_MATMUL_TF32=1` to allow
 cuBLAS TF32 for the FP32 VideoVAE; this changes numerics and is intended for
 same-seed speed and quality A/B tests.
+
+`fused_modulation=true` inserts `MiniMaxH3FusedModulation` before an optional
+EasyCache patch. The image pins `Saganaki22/ComfyUI-sol-attn` v0.6.2 at commit
+`930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf`. This optimization does not change
+attention topology, skip sampling work, or alter weights: it fuses H3's
+segmented AdaLN scale/shift and gated residual updates while explicitly
+reproducing eager BF16 rounding. Upstream's real ComfyUI `DiTBlock` regression
+uses `torch.equal` for bit-exact comparison. All product entry points enable the
+fusion by default; pass `fused_modulation=false` to run the original eager path.
 
 ## Local Cog usage
 

@@ -106,6 +106,7 @@ def handler(event):
             size=values.get("size", "preview"),
             duration=float(values.get("duration", 5)),
             steps=int(values.get("steps", 24)),
+            fused_modulation=_boolean(values, "fused_modulation", True),
             seed=values.get("seed"),
             structured_prompt=_optional_boolean(values, "structured_prompt"),
             include_audio=_boolean(values, "include_audio", True),

@@ -10,6 +10,12 @@ RUN git -C /opt/ComfyUI fetch origin v0.31.0 \
     && python -m pip install --break-system-packages --no-cache-dir \
         -r /opt/ComfyUI/requirements.txt
 
+RUN rm -rf /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
+    && git clone https://github.com/Saganaki22/ComfyUI-sol-attn.git \
+        /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
+        checkout 930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf
+
 RUN TORCH_CUDA_ARCH_LIST='8.0;8.9;12.0' MAX_JOBS=4 python -m pip install \
     --break-system-packages --no-cache-dir --no-build-isolation \
     --force-reinstall --no-deps \

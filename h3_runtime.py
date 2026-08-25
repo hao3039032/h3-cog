@@ -304,6 +304,7 @@ class H3Runtime:
         output_codec: str = "mp4-h264",
         encode_quality: int = 26,
         cache: CacheTuning | None = None,
+        fused_modulation: bool = True,
         return_metrics: bool = False,
     ) -> Path | GenerationResult:
         total_started = time.monotonic()
@@ -332,6 +333,7 @@ class H3Runtime:
             last_frame=last_frame,
             loop=loop,
             reference_count=reference_count,
+            fused_modulation=fused_modulation,
         )
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
             raise ValueError("ref2va supports at most 9 images, 3 videos, and 3 audio clips")
@@ -385,6 +387,7 @@ class H3Runtime:
                 reference_video_names=reference_video_names,
                 reference_audio_names=reference_audio_names,
                 cache=cache,
+                fused_modulation=fused_modulation,
             )
             with _ROUTE_LOCK:
                 self._prepare_generation(task, partition)
@@ -417,7 +420,8 @@ class H3Runtime:
                         f"generated {width}x{height} frames={frames} seconds={actual_seconds:.2f} "
                         f"steps={steps} seed={seed} mode={task} partition={partition} backend=native/single "
                         f"dit_switch={self.dit_switch_policy} total_seconds={total_seconds:.3f} "
-                        f"cache={cache.profile if cache is not None else 'off'}",
+                        f"cache={cache.profile if cache is not None else 'off'} "
+                        f"fused_modulation={'on' if fused_modulation else 'off'}",
                         flush=True,
                     )
                     if not return_metrics:
@@ -439,6 +443,7 @@ class H3Runtime:
                         "steps": steps,
                         "seed": seed,
                         "cache": cache.public_dict() if cache is not None else {"profile": "off"},
+                        "fused_modulation": fused_modulation,
                     }
                     return GenerationResult(output, metrics)
             raise RuntimeError("generation exceeded 45 minute safety timeout")
