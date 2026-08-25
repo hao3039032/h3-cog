@@ -19,6 +19,10 @@ ATTENTION_SAGE = "sage-attention"
 ATTENTION_SOL_INT8_QK = "sol-int8-qk"
 ATTENTION_BACKENDS = (ATTENTION_SAGE, ATTENTION_SOL_INT8_QK)
 
+INFERENCE_QUALITY = "quality"
+INFERENCE_TURBO = "turbo"
+INFERENCE_MODES = (INFERENCE_QUALITY, INFERENCE_TURBO)
+
 
 def normalize_attention_backend(value: str) -> str:
     backend = str(value).strip().lower()
@@ -27,6 +31,23 @@ def normalize_attention_backend(value: str) -> str:
             "attention_backend must be one of: " + ", ".join(ATTENTION_BACKENDS)
         )
     return backend
+
+
+def normalize_inference_mode(value: str) -> str:
+    mode = str(value).strip().lower()
+    if mode not in INFERENCE_MODES:
+        raise ValueError(
+            "inference_mode must be one of: " + ", ".join(INFERENCE_MODES)
+        )
+    return mode
+
+
+def resolve_steps(task: str, requested_steps: int, inference_mode: str) -> int:
+    task = normalize_task(task)
+    mode = normalize_inference_mode(inference_mode)
+    if mode == INFERENCE_QUALITY:
+        return int(requested_steps)
+    return 4 if task == TASK_REF2VA else 8
 
 
 TASK_PARTITIONS = {
@@ -38,6 +59,8 @@ FL2VA_MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 REF2VA_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 TEXT_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
+FL2VA_TURBO_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+REF2VA_TURBO_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 
 ASPECTS = {
     "16:9": (1344, 768),
@@ -111,6 +134,7 @@ def validate_inputs(
     reference_count: int = 0,
     fused_modulation: bool = True,
     attention_backend: str = ATTENTION_SAGE,
+    inference_mode: str = INFERENCE_QUALITY,
 ) -> None:
     normalized_task = normalize_task(task)
     inferred_task = infer_task(
@@ -143,6 +167,7 @@ def validate_inputs(
     if not isinstance(fused_modulation, bool):
         raise ValueError("fused_modulation must be a boolean")
     normalize_attention_backend(attention_backend)
+    normalize_inference_mode(inference_mode)
 
 
 def _scaled_image(graph: dict[str, dict], node_id: str, name: str, width: int, height: int) -> tuple[str, dict]:
@@ -179,9 +204,11 @@ def build_workflow(
     cache: CacheTuning | None = None,
     fused_modulation: bool = True,
     attention_backend: str = ATTENTION_SAGE,
+    inference_mode: str = INFERENCE_QUALITY,
 ) -> dict[str, dict]:
     task = normalize_task(task)
     attention_backend = normalize_attention_backend(attention_backend)
+    inference_mode = normalize_inference_mode(inference_mode)
     reference_image_names = reference_image_names or []
     reference_video_names = reference_video_names or []
     reference_audio_names = reference_audio_names or []
@@ -195,7 +222,12 @@ def build_workflow(
         reference_count=len(reference_image_names) + len(reference_video_names) + len(reference_audio_names),
         fused_modulation=fused_modulation,
         attention_backend=attention_backend,
+        inference_mode=inference_mode,
     )
+
+    turbo = inference_mode == INFERENCE_TURBO
+    effective_steps = resolve_steps(task, steps, inference_mode)
+    sampler_name = "euler" if turbo else "res_multistep"
 
     if task == TASK_REF2VA:
         model_name = REF2VA_MODEL
@@ -234,8 +266,8 @@ def build_workflow(
         "5": conditioning,
         "6": {"class_type": "BasicGuider", "inputs": {"model": ["1", 0], "conditioning": ["5", 0]}},
         "7": {"class_type": "RandomNoise", "inputs": {"noise_seed": int(seed)}},
-        "8": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": "res_multistep"}},
-        "9": {"class_type": "BasicScheduler", "inputs": {"model": ["1", 0], "scheduler": "simple", "steps": int(steps), "denoise": 1.0}},
+        "8": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": sampler_name}},
+        "9": {"class_type": "BasicScheduler", "inputs": {"model": ["1", 0], "scheduler": "simple", "steps": effective_steps, "denoise": 1.0}},
         "10": {
             "class_type": "SamplerCustomAdvanced",
             "inputs": {"noise": ["7", 0], "guider": ["6", 0], "sampler": ["8", 0], "sigmas": ["9", 0], "latent_image": ["5", 1]},
@@ -260,6 +292,29 @@ def build_workflow(
     }
     next_id = 15
     model_link: list[str | int] = ["1", 0]
+
+    if turbo:
+        lora_name = REF2VA_TURBO_LORA if task == TASK_REF2VA else FL2VA_TURBO_LORA
+        graph[str(next_id)] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {
+                "model": model_link,
+                "lora_name": lora_name,
+                "strength_model": 1.0,
+            },
+        }
+        model_link = [str(next_id), 0]
+        next_id += 1
+        graph[str(next_id)] = {
+            "class_type": "MiniMaxH3SigmaShift",
+            "inputs": {
+                "model": model_link,
+                "shift_video": 12.0,
+                "shift_audio": 3.0,
+            },
+        }
+        model_link = [str(next_id), 0]
+        next_id += 1
 
     if attention_backend == ATTENTION_SOL_INT8_QK:
         graph[str(next_id)] = {

@@ -31,7 +31,7 @@ accelerated output.
 ## Gradio Studio entry point
 
 The ModelScope Studio entry file is `app.py`. It lazily starts ComfyUI on the
-first request. The 80.10GB weight set must already be provisioned at
+first request. The 84.02GB weight set must already be provisioned at
 `WEIGHTS_DIR`; missing files fail that initialization with their full paths.
 Configure these environment variables:
 
@@ -59,7 +59,7 @@ container adequate shared memory. The separate
 `cog.yaml` remains available when a Cog/Replicate-compatible image is needed.
 
 For scale-to-zero, preserve `WEIGHTS_DIR` on a persistent volume. Otherwise
-every cold worker must be provisioned with roughly 80.10GB before it can start.
+every cold worker must be provisioned with roughly 84.02GB before it can start.
 Set `H3_VIDEO_VAE_PRECISION=fp16` only for a storage-constrained comparison
 worker. Provision the deterministic Comfy-native FP32 artifact from
 `Austusm/minimax_h3_video_vae` (`10,415,548,688` bytes, SHA-256

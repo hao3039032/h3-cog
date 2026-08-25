@@ -33,11 +33,12 @@ For a host port other than 7860, change only the left side of `-p`, for example
 `-p 8080:7860`. Use `PORT` only when the platform requires the process itself
 to listen on a different socket.
 
-The five task-routing weights are not baked into this portable image. The
-default FP32 visual VAE brings the selected set to about 80.10GB; mount at
-least 84GB of persistent storage at `/weights` and provision the files listed
-in the README before startup. The app links those files into ComfyUI and
-consumes them as-is; missing files fail startup with their full paths.
+The seven task-routing weights are not baked into this portable image. The
+default FP32 visual VAE and two Turbo LoRAs bring the selected set to about
+84.02GB; mount at least 88GB of persistent storage at `/weights` and provision
+the files listed in the README before startup. The app links those files into
+ComfyUI and consumes them as-is; missing files fail startup with their full
+paths.
 
 Set `H3_VIDEO_VAE_PRECISION=fp16` to use the 5.21GB visual VAE instead. This
 is useful on storage-constrained workers, but it intentionally gives up the

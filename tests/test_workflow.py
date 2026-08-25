@@ -5,10 +5,15 @@ import pytest
 from h3_tuning import CacheTuning
 from h3_workflow import (
     ATTENTION_SAGE,
+    FL2VA_TURBO_LORA,
+    INFERENCE_QUALITY,
+    REF2VA_TURBO_LORA,
     build_workflow,
     infer_task,
     normalize_attention_backend,
+    normalize_inference_mode,
     normalize_task,
+    resolve_steps,
     task_partition,
     validate_inputs,
 )
@@ -198,6 +203,80 @@ def test_attention_backend_defaults_to_sage_and_rejects_unknown_values():
             steps=20,
             seed=1,
             attention_backend="sage-int8",
+        )
+
+
+def test_t2va_turbo_uses_official_fl2v_lora_euler_and_eight_steps():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=960,
+        height=544,
+        frames=124,
+        steps=24,
+        seed=9,
+        inference_mode="turbo",
+    )
+    assert graph["8"]["inputs"]["sampler_name"] == "euler"
+    assert graph["9"]["inputs"] == {
+        "model": ["17", 0],
+        "scheduler": "simple",
+        "steps": 8,
+        "denoise": 1.0,
+    }
+    assert graph["15"] == {
+        "class_type": "LoraLoaderModelOnly",
+        "inputs": {
+            "model": ["1", 0],
+            "lora_name": FL2VA_TURBO_LORA,
+            "strength_model": 1.0,
+        },
+    }
+    assert graph["16"] == {
+        "class_type": "MiniMaxH3SigmaShift",
+        "inputs": {
+            "model": ["15", 0],
+            "shift_video": 12.0,
+            "shift_audio": 3.0,
+        },
+    }
+    assert graph["17"] == {
+        "class_type": "MiniMaxH3FusedModulation",
+        "inputs": {"model": ["16", 0], "enabled": True},
+    }
+
+
+def test_ref2va_turbo_uses_official_ref2v_lora_and_four_steps():
+    graph = build_workflow(
+        prompt="p",
+        task="ref2va",
+        width=960,
+        height=544,
+        frames=124,
+        steps=24,
+        seed=9,
+        reference_image_names=["identity.png"],
+        inference_mode="turbo",
+    )
+    assert graph["8"]["inputs"]["sampler_name"] == "euler"
+    assert graph["9"]["inputs"]["steps"] == 4
+    assert graph["15"]["inputs"]["lora_name"] == REF2VA_TURBO_LORA
+    assert graph["16"]["inputs"]["shift_video"] == 12.0
+    assert graph["16"]["inputs"]["shift_audio"] == 3.0
+
+
+def test_inference_mode_defaults_to_quality_and_rejects_unknown_values():
+    assert normalize_inference_mode(" QUALITY ") == INFERENCE_QUALITY
+    assert resolve_steps("t2va", 24, "quality") == 24
+    assert resolve_steps("t2va", 24, "turbo") == 8
+    assert resolve_steps("fl2va", 24, "turbo") == 8
+    assert resolve_steps("ref2va", 24, "turbo") == 4
+    with pytest.raises(ValueError, match="inference_mode"):
+        validate_inputs(
+            task="t2va",
+            steps=20,
+            seed=1,
+            inference_mode="fast",
         )
 
 

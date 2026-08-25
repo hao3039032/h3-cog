@@ -14,10 +14,14 @@ REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safete
 DIFFUSION_RELATIVES = (FL2VA_RELATIVE, REF2VA_RELATIVE)
 VIDEO_VAE_FP16_RELATIVE = "vae/minimax_h3_video_vae_fp16.safetensors"
 VIDEO_VAE_FP32_RELATIVE = "vae/minimax_h3_video_vae_fp32.safetensors"
+FL2VA_TURBO_LORA_RELATIVE = "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
+REF2VA_TURBO_LORA_RELATIVE = "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
 FILES = {
     TEXT_ENCODER_RELATIVE: "text_encoders",
     VIDEO_VAE_FP16_RELATIVE: "vae",
     "vae/minimax_h3_audio_vae_fp32.safetensors": "vae",
+    FL2VA_TURBO_LORA_RELATIVE: "loras",
+    REF2VA_TURBO_LORA_RELATIVE: "loras",
 }
 VERIFIED_WEIGHTS = {
     TEXT_ENCODER_RELATIVE: {
@@ -40,6 +44,16 @@ VERIFIED_WEIGHTS = {
         "size": 605_254_808,
         "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
         "url": f"{SOURCE_BASE}/vae/minimax_h3_audio_vae_fp32.safetensors",
+    },
+    FL2VA_TURBO_LORA_RELATIVE: {
+        "size": 1_956_193_000,
+        "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e",
+        "url": f"{SOURCE_BASE}/{FL2VA_TURBO_LORA_RELATIVE}",
+    },
+    REF2VA_TURBO_LORA_RELATIVE: {
+        "size": 1_956_193_000,
+        "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+        "url": f"{SOURCE_BASE}/{REF2VA_TURBO_LORA_RELATIVE}",
     },
     FL2VA_RELATIVE: {
         "size": 20_970_379_616,

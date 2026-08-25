@@ -36,6 +36,8 @@ does not permit it.
 - Native H3 aspect ratios and a 768px short-edge quality tier.
 - Official `res_multistep` sampler and 24-step deployment default; 12–16 steps and
   reduced pixel area are exposed for previews.
+- Opt-in official LightX2V Turbo inference: FL2VA/T2VA uses the 8-step v1.0
+  LoRA, while REF2VA automatically uses its matching 4-step v0.1 LoRA.
 - default SageAttention with an opt-in per-request Sol-Attn residual INT8 QK
   path, plus PyTorch attention fallback and ComfyUI DynamicVRAM on every GPU size.
 - default-on, bit-exact H3 fused modulation for lower AdaLN and gated-residual
@@ -71,6 +73,7 @@ treating it as a quality-neutral default for production traffic.
 | `size` | `preview` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
+| `inference_mode` | `quality` | `quality` uses `steps`; `turbo` automatically uses FL2V 8-step or Ref2V 4-step |
 | `attention_backend` | `sage-attention` | `sage-attention` or experimental `sol-int8-qk` |
 | `fused_modulation` | `true` | Enables bit-exact H3 AdaLN and gated-residual Triton fusion |
 | `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
@@ -81,6 +84,14 @@ treating it as a quality-neutral default for production traffic.
 The default native 9:16 canvas is 768×1344 and `preview` is 480×864, while
 preserving 32-pixel alignment. A requested 5 seconds is 124
 frames, or 5.17 seconds, because H3 only accepts the `17k+5` grid.
+
+`inference_mode=turbo` applies the task-matched official LightX2V LoRA at
+strength `1.0`, switches to Euler, and applies MiniMax H3 video/audio sigma
+shifts `12/3`. T2VA and FL2VA use
+`minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors` for exactly 8
+steps. REF2VA uses `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`
+for exactly 4 steps. The request's `steps` value is only used in `quality`
+mode. Quality remains the default on every interface.
 
 On a 48GB L40S, ComfyUI's DynamicVRAM path measured about 7% faster than
 estimate-based loading on the same 480x864, 362-frame workload.
@@ -156,12 +167,14 @@ its model weights.
 
 ## Verified weight sources
 
-The task-routing production set contains about 80.10GB of weights:
+The task-routing production set contains about 84.02GB of weights:
 
 ```text
 diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
 diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
 text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
+loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
+loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
 vae/minimax_h3_video_vae_fp32.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
 ```
@@ -190,7 +203,7 @@ The handler requires `task`, accepts FL keyframe URLs plus Cog-compatible
 reference URL lists and `*_urls` aliases. It rejects private/reserved network
 targets, caps each file at 512MiB, and returns a bounded base64 media output
 compatible with app.nz's Cog serverless shim. Set minimum workers to zero. A
-persistent network volume must already contain the 80.10GB model set.
+persistent network volume must already contain the 84.02GB model set.
 
 ### Authenticated acceleration sweeps
 
@@ -225,8 +238,9 @@ EasyCache speedup or quality claim is made before those GPU A/B results exist.
 ## Single-GPU memory and cost
 
 Each pruned INT8 DiT is 20.97GB; the INT8 Qwen encoder is 27.14GB, visual VAE
-10.42GB, and audio VAE 0.61GB. Both DiT partitions bring the selected set to
-about 80.10GB. They cannot all remain resident on a 24GB or 48GB card, so
+10.42GB, audio VAE 0.61GB, and the two Turbo LoRAs total 3.91GB. Both DiT
+partitions bring the selected set to about 84.02GB. They cannot all remain
+resident on a 24GB or 48GB card, so
 ComfyUI stages components between prompt encoding, denoising, and VAE decode.
 Use at least 96GB system RAM on DynamicVRAM workers and a persistent weight
 volume. GPUs reporting at least 80GiB use HighVRAM after the first load and may
@@ -248,7 +262,7 @@ cog build -t h3-cog:local
 Unit tests cover the H3 frame grid, native dimensions, official keyframe prompt
 prefixes, task routing, model-cache policy, GPU/CPU encoder fallback, explicit
 license gate, and externally provisioned weight paths. A real GPU smoke test
-additionally requires the accepted model license, 80.10GB of weights, a 48GB
+additionally requires the accepted model license, 84.02GB of weights, a 48GB
 CUDA GPU, and enough host RAM.
 
 `demo_prompts.json` is the deterministic seven-clip launch suite covering text,
@@ -278,4 +292,5 @@ and poster files and upserts stable `minimax-h3:<demo-id>` gallery records. Use
 - [MiniMax H3 model card and license](https://huggingface.co/MiniMaxAI/MiniMax-H3)
 - [ComfyUI H3 workflow documentation](https://docs.comfy.org/tutorials/video/minimax/minimax-h3)
 - [ComfyUI-packaged checkpoints](https://huggingface.co/Comfy-Org/MiniMax-H3)
+- [Official LightX2V MiniMax H3 Turbo LoRAs and settings](https://github.com/ModelTC/Minimax-H3-Turbo)
 - [MiniMax base-mode prompt guide](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md)

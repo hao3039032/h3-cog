@@ -106,6 +106,7 @@ def handler(event):
             size=values.get("size", "preview"),
             duration=float(values.get("duration", 5)),
             steps=int(values.get("steps", 24)),
+            inference_mode=values.get("inference_mode", "quality"),
             attention_backend=values.get("attention_backend", "sage-attention"),
             fused_modulation=_boolean(values, "fused_modulation", True),
             seed=values.get("seed"),

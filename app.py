@@ -17,7 +17,14 @@ from h3_gradio import (
 )
 from h3_seed import resolve_seed
 from h3_runtime import H3Runtime
-from h3_workflow import ATTENTION_SAGE, ATTENTION_SOL_INT8_QK, infer_task
+from h3_workflow import (
+    ATTENTION_SAGE,
+    ATTENTION_SOL_INT8_QK,
+    INFERENCE_QUALITY,
+    INFERENCE_TURBO,
+    infer_task,
+    resolve_steps,
+)
 
 _runtime: H3Runtime | None = None
 _runtime_lock = threading.Lock()
@@ -81,6 +88,7 @@ def generate_video(
     size: str,
     duration: float,
     steps: int,
+    inference_mode: str = INFERENCE_QUALITY,
     attention_backend: str = ATTENTION_SAGE,
     fused_modulation: bool = True,
     seed: str | None = None,
@@ -114,6 +122,7 @@ def generate_video(
                 size=size,
                 duration=float(duration),
                 steps=int(steps),
+                inference_mode=inference_mode,
                 attention_backend=attention_backend,
                 fused_modulation=bool(fused_modulation),
                 seed=resolved_seed,
@@ -124,6 +133,7 @@ def generate_video(
         return (
             str(output),
             f"完成 · task={task} · backend={runtime.parallel_mode} · "
+            f"inference={inference_mode} ({resolve_steps(task, steps, inference_mode)} steps) · "
             f"attention={attention_backend} · "
             f"fused_modulation={'on' if fused_modulation else 'off'} · "
             f"seed={resolved_seed}",
@@ -183,9 +193,17 @@ def build_demo() -> gr.Blocks:
                     aspect_ratio = gr.Dropdown(["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], value="9:16", label="画幅")
                     size = gr.Dropdown(["preview", "balanced", "native"], value="preview", label="尺寸（preview 为 480p）")
                     duration = gr.Slider(4, 15, value=5, step=0.5, label="时长（秒）")
-                    steps = gr.Slider(8, 60, value=24, step=1, label="采样步数")
+                    steps = gr.Slider(8, 60, value=24, step=1, label="常规模式采样步数（Turbo 自动 8/4 步）")
                 with gr.Row():
                     seed = gr.Textbox(value="", label="Seed（留空随机）")
+                    inference_mode = gr.Dropdown(
+                        choices=[
+                            ("质量模式（默认）", INFERENCE_QUALITY),
+                            ("Turbo（T2/FL 8 步，Ref 4 步）", INFERENCE_TURBO),
+                        ],
+                        value=INFERENCE_QUALITY,
+                        label="推理模式",
+                    )
                     attention_backend = gr.Dropdown(
                         choices=[
                             ("SageAttention（默认）", ATTENTION_SAGE),
@@ -232,6 +250,7 @@ def build_demo() -> gr.Blocks:
                 size,
                 duration,
                 steps,
+                inference_mode,
                 attention_backend,
                 fused_modulation,
                 seed,

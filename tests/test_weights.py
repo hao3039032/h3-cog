@@ -40,6 +40,8 @@ def test_weight_sources_are_pinned_to_modelscope_without_nvfp4():
         "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
         "vae/minimax_h3_video_vae_fp16.safetensors",
         "vae/minimax_h3_audio_vae_fp32.safetensors",
+        weights.FL2VA_TURBO_LORA_RELATIVE,
+        weights.REF2VA_TURBO_LORA_RELATIVE,
     }
     entry = weights.VERIFIED_WEIGHTS[weights.TEXT_ENCODER_RELATIVE]
     assert entry["size"] == 27_141_342_152
@@ -58,6 +60,8 @@ def test_fp32_video_vae_uses_repackaged_modelscope_source_by_default(monkeypatch
         weights.TEXT_ENCODER_RELATIVE,
         weights.VIDEO_VAE_FP32_RELATIVE,
         "vae/minimax_h3_audio_vae_fp32.safetensors",
+        weights.FL2VA_TURBO_LORA_RELATIVE,
+        weights.REF2VA_TURBO_LORA_RELATIVE,
     }
     entry = weights.VERIFIED_WEIGHTS[weights.VIDEO_VAE_FP32_RELATIVE]
     assert entry["size"] == 10_415_548_688
@@ -70,6 +74,17 @@ def test_fp32_video_vae_uses_repackaged_modelscope_source_by_default(monkeypatch
     monkeypatch.setenv("H3_VIDEO_VAE_PRECISION", "bf16")
     with pytest.raises(ValueError, match="fp16 or fp32"):
         weights.video_vae_precision()
+
+
+def test_turbo_lora_metadata_matches_official_lightx2v_files():
+    fl2v = weights.VERIFIED_WEIGHTS[weights.FL2VA_TURBO_LORA_RELATIVE]
+    ref2v = weights.VERIFIED_WEIGHTS[weights.REF2VA_TURBO_LORA_RELATIVE]
+    assert fl2v["size"] == 1_956_193_000
+    assert fl2v["sha256"] == "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e"
+    assert ref2v["size"] == 1_956_193_000
+    assert ref2v["sha256"] == "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c"
+    assert fl2v["url"].endswith("/" + weights.FL2VA_TURBO_LORA_RELATIVE)
+    assert ref2v["url"].endswith("/" + weights.REF2VA_TURBO_LORA_RELATIVE)
 
 
 def test_existing_weights_are_linked_without_validation(monkeypatch, tmp_path):

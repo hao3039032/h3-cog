@@ -23,13 +23,16 @@ from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
 from h3_workflow import (
     ATTENTION_SAGE,
+    INFERENCE_QUALITY,
     TASK_FL2VA,
     TASK_REF2VA,
     aligned_frames,
     build_workflow,
     dimensions,
     normalize_attention_backend,
+    normalize_inference_mode,
     normalize_task,
+    resolve_steps,
     task_partition,
     validate_inputs,
 )
@@ -308,11 +311,14 @@ class H3Runtime:
         cache: CacheTuning | None = None,
         fused_modulation: bool = True,
         attention_backend: str = ATTENTION_SAGE,
+        inference_mode: str = INFERENCE_QUALITY,
         return_metrics: bool = False,
     ) -> Path | GenerationResult:
         total_started = time.monotonic()
         task = normalize_task(task)
         attention_backend = normalize_attention_backend(attention_backend)
+        inference_mode = normalize_inference_mode(inference_mode)
+        effective_steps = resolve_steps(task, steps, inference_mode)
         partition = task_partition(task)
         command = _comfy_command()
         print(
@@ -321,6 +327,7 @@ class H3Runtime:
             f"vram_mode={_vram_mode(command)} "
             f"dynamic_vram={'on' if '--highvram' not in command else 'off'} "
             f"attention_backend={attention_backend} "
+            f"inference_mode={inference_mode} "
             f"video_vae={video_vae_precision()} "
             f"fp32_matmul={_fp32_matmul_precision()} "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
@@ -340,6 +347,7 @@ class H3Runtime:
             reference_count=reference_count,
             fused_modulation=fused_modulation,
             attention_backend=attention_backend,
+            inference_mode=inference_mode,
         )
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
             raise ValueError("ref2va supports at most 9 images, 3 videos, and 3 audio clips")
@@ -395,6 +403,7 @@ class H3Runtime:
                 cache=cache,
                 fused_modulation=fused_modulation,
                 attention_backend=attention_backend,
+                inference_mode=inference_mode,
             )
             with _ROUTE_LOCK:
                 self._prepare_generation(task, partition)
@@ -425,10 +434,11 @@ class H3Runtime:
                     total_seconds = time.monotonic() - total_started
                     print(
                         f"generated {width}x{height} frames={frames} seconds={actual_seconds:.2f} "
-                        f"steps={steps} seed={seed} mode={task} partition={partition} backend=native/single "
+                        f"steps={effective_steps} seed={seed} mode={task} partition={partition} backend=native/single "
                         f"dit_switch={self.dit_switch_policy} total_seconds={total_seconds:.3f} "
                         f"cache={cache.profile if cache is not None else 'off'} "
                         f"attention_backend={attention_backend} "
+                        f"inference_mode={inference_mode} "
                         f"fused_modulation={'on' if fused_modulation else 'off'}",
                         flush=True,
                     )
@@ -448,10 +458,12 @@ class H3Runtime:
                         "height": height,
                         "frames": frames,
                         "duration_seconds": round(actual_seconds, 3),
-                        "steps": steps,
+                        "steps": effective_steps,
+                        "requested_steps": int(steps),
                         "seed": seed,
                         "cache": cache.public_dict() if cache is not None else {"profile": "off"},
                         "attention_backend": attention_backend,
+                        "inference_mode": inference_mode,
                         "fused_modulation": fused_modulation,
                     }
                     return GenerationResult(output, metrics)
