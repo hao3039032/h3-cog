@@ -22,11 +22,13 @@ from h3_media import encode_video
 from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
 from h3_workflow import (
+    ATTENTION_SAGE,
     TASK_FL2VA,
     TASK_REF2VA,
     aligned_frames,
     build_workflow,
     dimensions,
+    normalize_attention_backend,
     normalize_task,
     task_partition,
     validate_inputs,
@@ -305,10 +307,12 @@ class H3Runtime:
         encode_quality: int = 26,
         cache: CacheTuning | None = None,
         fused_modulation: bool = True,
+        attention_backend: str = ATTENTION_SAGE,
         return_metrics: bool = False,
     ) -> Path | GenerationResult:
         total_started = time.monotonic()
         task = normalize_task(task)
+        attention_backend = normalize_attention_backend(attention_backend)
         partition = task_partition(task)
         command = _comfy_command()
         print(
@@ -316,6 +320,7 @@ class H3Runtime:
             f"gpu={_gpu_name()} "
             f"vram_mode={_vram_mode(command)} "
             f"dynamic_vram={'on' if '--highvram' not in command else 'off'} "
+            f"attention_backend={attention_backend} "
             f"video_vae={video_vae_precision()} "
             f"fp32_matmul={_fp32_matmul_precision()} "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
@@ -334,6 +339,7 @@ class H3Runtime:
             loop=loop,
             reference_count=reference_count,
             fused_modulation=fused_modulation,
+            attention_backend=attention_backend,
         )
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
             raise ValueError("ref2va supports at most 9 images, 3 videos, and 3 audio clips")
@@ -388,6 +394,7 @@ class H3Runtime:
                 reference_audio_names=reference_audio_names,
                 cache=cache,
                 fused_modulation=fused_modulation,
+                attention_backend=attention_backend,
             )
             with _ROUTE_LOCK:
                 self._prepare_generation(task, partition)
@@ -421,6 +428,7 @@ class H3Runtime:
                         f"steps={steps} seed={seed} mode={task} partition={partition} backend=native/single "
                         f"dit_switch={self.dit_switch_policy} total_seconds={total_seconds:.3f} "
                         f"cache={cache.profile if cache is not None else 'off'} "
+                        f"attention_backend={attention_backend} "
                         f"fused_modulation={'on' if fused_modulation else 'off'}",
                         flush=True,
                     )
@@ -443,6 +451,7 @@ class H3Runtime:
                         "steps": steps,
                         "seed": seed,
                         "cache": cache.public_dict() if cache is not None else {"profile": "off"},
+                        "attention_backend": attention_backend,
                         "fused_modulation": fused_modulation,
                     }
                     return GenerationResult(output, metrics)

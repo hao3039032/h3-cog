@@ -17,7 +17,7 @@ from h3_gradio import (
 )
 from h3_seed import resolve_seed
 from h3_runtime import H3Runtime
-from h3_workflow import infer_task
+from h3_workflow import ATTENTION_SAGE, ATTENTION_SOL_INT8_QK, infer_task
 
 _runtime: H3Runtime | None = None
 _runtime_lock = threading.Lock()
@@ -81,9 +81,10 @@ def generate_video(
     size: str,
     duration: float,
     steps: int,
-    fused_modulation: bool,
-    seed: str | None,
-    include_audio: bool,
+    attention_backend: str = ATTENTION_SAGE,
+    fused_modulation: bool = True,
+    seed: str | None = None,
+    include_audio: bool = True,
 ) -> tuple[str, str]:
     if not prompt or not prompt.strip():
         raise gr.Error("请输入提示词。")
@@ -113,6 +114,7 @@ def generate_video(
                 size=size,
                 duration=float(duration),
                 steps=int(steps),
+                attention_backend=attention_backend,
                 fused_modulation=bool(fused_modulation),
                 seed=resolved_seed,
                 structured_prompt=task != "ref2va",
@@ -122,6 +124,7 @@ def generate_video(
         return (
             str(output),
             f"完成 · task={task} · backend={runtime.parallel_mode} · "
+            f"attention={attention_backend} · "
             f"fused_modulation={'on' if fused_modulation else 'off'} · "
             f"seed={resolved_seed}",
         )
@@ -183,6 +186,14 @@ def build_demo() -> gr.Blocks:
                     steps = gr.Slider(8, 60, value=24, step=1, label="采样步数")
                 with gr.Row():
                     seed = gr.Textbox(value="", label="Seed（留空随机）")
+                    attention_backend = gr.Dropdown(
+                        choices=[
+                            ("SageAttention（默认）", ATTENTION_SAGE),
+                            ("Sol-Attn INT8 QK（实验）", ATTENTION_SOL_INT8_QK),
+                        ],
+                        value=ATTENTION_SAGE,
+                        label="注意力后端",
+                    )
                     include_audio = gr.Checkbox(value=True, label="保留生成音频")
                     fused_modulation = gr.Checkbox(
                         value=True,
@@ -221,6 +232,7 @@ def build_demo() -> gr.Blocks:
                 size,
                 duration,
                 steps,
+                attention_backend,
                 fused_modulation,
                 seed,
                 include_audio,

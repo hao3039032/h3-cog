@@ -36,8 +36,8 @@ does not permit it.
 - Native H3 aspect ratios and a 768px short-edge quality tier.
 - Official `res_multistep` sampler and 24-step deployment default; 12–16 steps and
   reduced pixel area are exposed for previews.
-- optional SageAttention when supplied by the image operator, with PyTorch
-  attention fallback and ComfyUI DynamicVRAM on every GPU size.
+- default SageAttention with an opt-in per-request Sol-Attn residual INT8 QK
+  path, plus PyTorch attention fallback and ComfyUI DynamicVRAM on every GPU size.
 - default-on, bit-exact H3 fused modulation for lower AdaLN and gated-residual
   overhead, with an explicit per-request opt-out for A/B validation.
 - GPU `av1_nvenc` WebM output with SVT-AV1 fallback; GPU H.264 with x264
@@ -71,6 +71,7 @@ treating it as a quality-neutral default for production traffic.
 | `size` | `preview` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
+| `attention_backend` | `sage-attention` | `sage-attention` or experimental `sol-int8-qk` |
 | `fused_modulation` | `true` | Enables bit-exact H3 AdaLN and gated-residual Triton fusion |
 | `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
 | `include_audio` | `true` | Keep or strip H3's generated stereo audio |
@@ -104,6 +105,13 @@ PyTorch SDPA because the SM90 FP8 SageAttention path produced corrupted H3
 video during validation. Set `H3_SAGE_ATTENTION=0` for a same-seed PyTorch SDPA
 comparison on supported cards. `H3_LOWVRAM` is retired and ignored;
 `H3_RESERVE_VRAM_GB` defaults to `1.0`.
+
+`attention_backend=sol-int8-qk` inserts the H3 scheduled Sol-Attn patch for
+eligible main-DiT attention calls. It enables residual INT8 QK, keeps P·V in
+BF16, preserves conditioning KV blocks exactly, and schedules tau from 1.0 to
+0.8. The already configured SageAttention path remains the fallback for short,
+gated, unsupported, or failed non-strict calls. All interfaces default to
+`sage-attention`, which leaves the existing workflow unchanged.
 
 FP32 matmuls stay strict by default. Set `H3_FP32_MATMUL_TF32=1` to allow
 cuBLAS TF32 for the FP32 VideoVAE; this changes numerics and is intended for

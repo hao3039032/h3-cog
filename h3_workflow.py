@@ -14,6 +14,21 @@ TASK_T2VA = "t2va"
 TASK_FL2VA = "fl2va"
 TASK_REF2VA = "ref2va"
 TASKS = (TASK_T2VA, TASK_FL2VA, TASK_REF2VA)
+
+ATTENTION_SAGE = "sage-attention"
+ATTENTION_SOL_INT8_QK = "sol-int8-qk"
+ATTENTION_BACKENDS = (ATTENTION_SAGE, ATTENTION_SOL_INT8_QK)
+
+
+def normalize_attention_backend(value: str) -> str:
+    backend = str(value).strip().lower()
+    if backend not in ATTENTION_BACKENDS:
+        raise ValueError(
+            "attention_backend must be one of: " + ", ".join(ATTENTION_BACKENDS)
+        )
+    return backend
+
+
 TASK_PARTITIONS = {
     TASK_T2VA: TASK_FL2VA,
     TASK_FL2VA: TASK_FL2VA,
@@ -95,6 +110,7 @@ def validate_inputs(
     loop: bool = False,
     reference_count: int = 0,
     fused_modulation: bool = True,
+    attention_backend: str = ATTENTION_SAGE,
 ) -> None:
     normalized_task = normalize_task(task)
     inferred_task = infer_task(
@@ -126,6 +142,7 @@ def validate_inputs(
         raise ValueError("seed must be between 0 and 2^63-1")
     if not isinstance(fused_modulation, bool):
         raise ValueError("fused_modulation must be a boolean")
+    normalize_attention_backend(attention_backend)
 
 
 def _scaled_image(graph: dict[str, dict], node_id: str, name: str, width: int, height: int) -> tuple[str, dict]:
@@ -161,8 +178,10 @@ def build_workflow(
     reference_audio_names: list[str] | None = None,
     cache: CacheTuning | None = None,
     fused_modulation: bool = True,
+    attention_backend: str = ATTENTION_SAGE,
 ) -> dict[str, dict]:
     task = normalize_task(task)
+    attention_backend = normalize_attention_backend(attention_backend)
     reference_image_names = reference_image_names or []
     reference_video_names = reference_video_names or []
     reference_audio_names = reference_audio_names or []
@@ -175,6 +194,7 @@ def build_workflow(
         loop=loop,
         reference_count=len(reference_image_names) + len(reference_video_names) + len(reference_audio_names),
         fused_modulation=fused_modulation,
+        attention_backend=attention_backend,
     )
 
     if task == TASK_REF2VA:
@@ -240,6 +260,28 @@ def build_workflow(
     }
     next_id = 15
     model_link: list[str | int] = ["1", 0]
+
+    if attention_backend == ATTENTION_SOL_INT8_QK:
+        graph[str(next_id)] = {
+            "class_type": "MiniMaxH3ScheduledSolAttentionPatch",
+            "inputs": {
+                "model": model_link,
+                "enabled": True,
+                "tau_start": 1.0,
+                "tau_end": 0.8,
+                "curve": "linear",
+                "min_tokens": 4096,
+                "strict": False,
+                "dense_percent": 0.0,
+                "thresh_type": "diag",
+                "int8_qk": True,
+                "int8_pv": False,
+                "sink_conditioning": "exact_kv",
+                "dense_blocks": "",
+            },
+        }
+        model_link = [str(next_id), 0]
+        next_id += 1
 
     if fused_modulation:
         graph[str(next_id)] = {

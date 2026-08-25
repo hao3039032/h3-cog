@@ -50,6 +50,7 @@ def test_generation_metrics_cover_output_identity_and_task_route(tmp_path, monke
     assert result.metrics["partition"] == "ref2va"
     assert result.metrics["dit_switch_policy"] == "auto"
     assert result.metrics["cache"] == {"profile": "off"}
+    assert result.metrics["attention_backend"] == "sage-attention"
     assert result.metrics["fused_modulation"] is True
     assert result.metrics["output_bytes"] == len(b"encoded-video")
     assert result.metrics["output_sha256"] == hashlib.sha256(b"encoded-video").hexdigest()
@@ -61,6 +62,7 @@ def test_product_defaults_are_vertical_preview_mp4():
     defaults = inspect.signature(H3Runtime.generate).parameters
     assert defaults["task"].default is inspect.Parameter.empty
     assert defaults["steps"].default == 24
+    assert defaults["attention_backend"].default == "sage-attention"
     assert defaults["fused_modulation"].default is True
     assert defaults["aspect_ratio"].default == "9:16"
     assert defaults["size"].default == "preview"

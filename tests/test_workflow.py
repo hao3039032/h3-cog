@@ -3,7 +3,15 @@ from pathlib import Path
 import pytest
 
 from h3_tuning import CacheTuning
-from h3_workflow import build_workflow, infer_task, normalize_task, task_partition, validate_inputs
+from h3_workflow import (
+    ATTENTION_SAGE,
+    build_workflow,
+    infer_task,
+    normalize_attention_backend,
+    normalize_task,
+    task_partition,
+    validate_inputs,
+)
 
 
 def test_t2va_selects_fl2va_partition_and_image_conditioning():
@@ -143,6 +151,54 @@ def test_fused_modulation_can_be_disabled_for_eager_ab_comparison():
     assert all(node["class_type"] != "MiniMaxH3FusedModulation" for node in graph.values())
     assert graph["6"]["inputs"]["model"] == ["1", 0]
     assert graph["9"]["inputs"]["model"] == ["1", 0]
+
+
+def test_sol_int8_qk_is_an_opt_in_model_patch_with_sage_fallback():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=768,
+        height=768,
+        frames=124,
+        steps=20,
+        seed=9,
+        attention_backend="sol-int8-qk",
+    )
+    assert graph["15"] == {
+        "class_type": "MiniMaxH3ScheduledSolAttentionPatch",
+        "inputs": {
+            "model": ["1", 0],
+            "enabled": True,
+            "tau_start": 1.0,
+            "tau_end": 0.8,
+            "curve": "linear",
+            "min_tokens": 4096,
+            "strict": False,
+            "dense_percent": 0.0,
+            "thresh_type": "diag",
+            "int8_qk": True,
+            "int8_pv": False,
+            "sink_conditioning": "exact_kv",
+            "dense_blocks": "",
+        },
+    }
+    assert graph["16"] == {
+        "class_type": "MiniMaxH3FusedModulation",
+        "inputs": {"model": ["15", 0], "enabled": True},
+    }
+    assert graph["6"]["inputs"]["model"] == ["16", 0]
+    assert graph["9"]["inputs"]["model"] == ["16", 0]
+
+
+def test_attention_backend_defaults_to_sage_and_rejects_unknown_values():
+    assert normalize_attention_backend(" SAGE-ATTENTION ") == ATTENTION_SAGE
+    with pytest.raises(ValueError, match="attention_backend"):
+        validate_inputs(
+            task="t2va",
+            steps=20,
+            seed=1,
+            attention_backend="sage-int8",
+        )
 
 
 def test_task_partitions_follow_sglang_contract():
