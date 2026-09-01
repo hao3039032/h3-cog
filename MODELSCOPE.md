@@ -33,7 +33,8 @@ accelerated output.
 The ModelScope Studio entry file is `app.py`. It lazily starts ComfyUI on the
 first request. The 84.02GB weight set must already be provisioned at
 `WEIGHTS_DIR`; missing files fail that initialization with their full paths.
-Configure these environment variables:
+PDD mode additionally needs the two optional `pdd_acc/` Acc files (+2.56GiB),
+checked lazily per request. Configure these environment variables:
 
 ```text
 MINIMAX_H3_LICENSE_ACCEPTED=1
@@ -43,8 +44,9 @@ WEIGHTS_DIR=/persistent-volume/models
 PORT=7860
 ```
 
-The deployment image must contain CUDA 12.8, PyTorch, ComfyUI v0.31.0 at the
-commit in `cog.yaml`. A plain Gradio SDK image is not enough.
+The deployment image must contain CUDA 12.8, PyTorch, ComfyUI v0.33.0 at the
+commit in `cog.yaml`, and the MiniMax-H3 PDD Acc node pack. A plain Gradio SDK
+image is not enough.
 `Dockerfile.modelscope` derives from the already baked H3 image. If that base
 still contains only the REF2VA DiT, provision the FL2VA file on the same
 persistent `WEIGHTS_DIR` before startup:

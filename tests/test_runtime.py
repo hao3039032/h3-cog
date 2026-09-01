@@ -1,5 +1,7 @@
 import hashlib
 import inspect
+import urllib.error
+from pathlib import Path
 
 import pytest
 
@@ -273,3 +275,172 @@ def test_generation_stages_and_cleans_fl_keyframes(tmp_path, monkeypatch):
     assert len(staged) == 1
     assert staged[0].startswith("h3-first-frame-")
     assert list((tmp_path / "input").iterdir()) == []
+
+
+def test_pdd_generation_routes_apply_sigmas_and_records_metrics(tmp_path, monkeypatch):
+    raw = tmp_path / "raw.mp4"
+    raw.write_bytes(b"raw")
+    encoded = tmp_path / "result.webm"
+    encoded.write_bytes(b"encoded-video")
+
+    runtime = object.__new__(H3Runtime)
+    runtime.dit_switch_policy = "auto"
+    runtime.current_task = None
+    runtime.current_partition = None
+    monkeypatch.setattr(runtime, "_stage_media", lambda path, label, index: "identity.png")
+    monkeypatch.setattr(runtime, "_history_output", lambda entry: raw)
+    monkeypatch.setattr(h3_runtime.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(h3_runtime, "encode_video", lambda *args: encoded)
+    linked_partitions = []
+    monkeypatch.setattr(
+        h3_runtime,
+        "ensure_pdd_weight",
+        lambda partition: linked_partitions.append(partition) or Path("/weights/pdd"),
+        )
+    monkeypatch.setattr(h3_runtime, "_pdd_nodes_verified", False)
+
+    def fake_json_request(path, payload=None, timeout=60):
+        if path.startswith("/object_info/"):
+            return {path.rsplit("/", 1)[-1]: {}}
+        if path == "/prompt":
+            graph = payload["prompt"]
+            assert graph["8"]["inputs"]["sampler_name"] == "euler"
+            assert "9" not in graph
+            assert graph["15"]["class_type"] == "MiniMaxH3SigmaShift"
+            assert graph["16"]["class_type"] == "MiniMaxH3PDDAccApply"
+            assert graph["16"]["inputs"]["pdd_file"] == "MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
+            assert graph["16"]["inputs"]["nfe"] == "8"
+            assert graph["10"]["inputs"]["sigmas"] == ["16", 1]
+            return {"prompt_id": "job-1"}
+        return {"job-1": {"status": {"completed": True}, "outputs": {}}}
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fake_json_request)
+    result = runtime.generate(
+        prompt="test",
+        task="ref2va",
+        reference_images=[tmp_path / "identity.png"],
+        duration=4,
+        steps=24,
+        seed=42,
+        inference_mode="pdd",
+        return_metrics=True,
+    )
+    assert result.metrics["inference_mode"] == "pdd"
+    assert result.metrics["steps"] == 8
+    assert result.metrics["requested_steps"] == 24
+    assert result.metrics["task"] == "ref2va"
+    assert result.metrics["schema_version"] == 2
+    # The partition weight link happens inside the route lock, before /prompt.
+    assert linked_partitions == ["ref2va"]
+
+
+def test_pdd_generation_rejects_cache_before_submission(monkeypatch, tmp_path):
+    from h3_tuning import CacheTuning
+
+    runtime = object.__new__(H3Runtime)
+    runtime.dit_switch_policy = "auto"
+    runtime.current_task = None
+    runtime.current_partition = None
+    calls = []
+
+    def fail_request(path, payload=None, timeout=60):
+        calls.append(path)
+        raise AssertionError("ComfyUI must not be contacted for a rejected PDD+cache request")
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fail_request)
+    cache = CacheTuning("balanced", 0.12, 0.15, 0.9, False, "sweep-1", "balanced")
+    with pytest.raises(ValueError, match="incompatible with EasyCache"):
+        runtime.generate(
+            prompt="test",
+            task="t2va",
+            duration=4,
+            steps=24,
+            seed=1,
+            inference_mode="pdd",
+            cache=cache,
+        )
+    assert calls == []
+
+
+def test_pdd_node_availability_is_verified_via_object_info(monkeypatch):
+    calls = []
+
+    def fake_json_request(path, payload=None, timeout=60):
+        calls.append(path)
+        if "/object_info/" in path:
+            name = path.rsplit("/", 1)[-1]
+            return {name: {}}
+        raise AssertionError(f"unexpected request: {path}")
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fake_json_request)
+    monkeypatch.setattr(h3_runtime, "_pdd_nodes_verified", False)
+    h3_runtime.verify_pdd_nodes()
+    assert calls == [
+        "/object_info/MiniMaxH3PDDAccApply",
+        "/object_info/MiniMaxH3SigmaShift",
+    ]
+    # A successful probe is cached for the process lifetime.
+    h3_runtime.verify_pdd_nodes()
+    assert len(calls) == 2
+
+
+def test_pdd_node_verification_reports_missing_custom_node(monkeypatch):
+    def fake_json_request(path, payload=None, timeout=60):
+        name = path.rsplit("/", 1)[-1]
+        return {name: {}} if name == "MiniMaxH3SigmaShift" else {}
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fake_json_request)
+    monkeypatch.setattr(h3_runtime, "_pdd_nodes_verified", False)
+    with pytest.raises(RuntimeError, match="MiniMaxH3PDDAccApply"):
+        h3_runtime.verify_pdd_nodes()
+
+
+def test_pdd_node_verification_wraps_transport_and_json_failures(monkeypatch):
+    import json as json_module
+
+    monkeypatch.setattr(h3_runtime, "_pdd_nodes_verified", False)
+
+    def raise_url_error(path, payload=None, timeout=60):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(h3_runtime, "_json_request", raise_url_error)
+    with pytest.raises(RuntimeError, match="could not query ComfyUI object_info"):
+        h3_runtime.verify_pdd_nodes()
+
+    def raise_json_error(path, payload=None, timeout=60):
+        raise json_module.JSONDecodeError("bad payload", "doc", 0)
+
+    monkeypatch.setattr(h3_runtime, "_json_request", raise_json_error)
+    with pytest.raises(RuntimeError, match="could not query ComfyUI object_info"):
+        h3_runtime.verify_pdd_nodes()
+
+
+def test_pdd_missing_weight_fails_with_explicit_path_before_sampling(monkeypatch, tmp_path):
+    runtime = object.__new__(H3Runtime)
+    runtime.dit_switch_policy = "auto"
+    runtime.current_task = None
+    runtime.current_partition = None
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(h3_runtime, "COMFY_ROOT", tmp_path / "comfy")
+    monkeypatch.setattr(h3_runtime, "_pdd_nodes_verified", False)
+
+    calls = []
+
+    def fake_json_request(path, payload=None, timeout=60):
+        calls.append(path)
+        if path.startswith("/object_info/"):
+            return {path.rsplit("/", 1)[-1]: {}}
+        raise AssertionError("sampling must not start when the PDD weight is missing")
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fake_json_request)
+    with pytest.raises(FileNotFoundError, match="pdd_acc"):
+        runtime.generate(
+            prompt="test",
+            task="t2va",
+            duration=4,
+            steps=24,
+            seed=1,
+            inference_mode="pdd",
+        )
+    assert all(call.startswith("/object_info/") for call in calls)

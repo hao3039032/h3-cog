@@ -21,7 +21,7 @@ class Runner(BaseRunner):
         size: str = Input(description="Preview is 480p and recommended; native uses H3's full 768px short edge", default="preview", choices=["preview", "balanced", "native"]),
         duration: float = Input(description="Requested seconds; snaps to H3's 17k+5 frame grid at 24fps", default=5.0, ge=4.0, le=15.0),
         steps: int = Input(description="24 is the deployment quality default; 12-16 is useful for previews", default=24, ge=8, le=60),
-        inference_mode: str = Input(description="Quality uses the requested steps; Turbo selects the official FL2V 8-step or Ref2V 4-step LoRA automatically", default="quality", choices=["quality", "turbo"]),
+        inference_mode: str = Input(description="Quality uses the requested steps; Turbo selects the official FL2V 8-step or Ref2V 4-step LoRA automatically; PDD runs the official 8-step PDD Acc LoRA+heads", default="quality", choices=["quality", "turbo", "pdd"]),
         attention_backend: str = Input(description="H3 attention backend; Sol keeps Sage as the fallback path", default="sage-attention", choices=["sage-attention", "sol-int8-qk"]),
         fused_modulation: bool = Input(description="Enable bit-exact H3 AdaLN and gated-residual kernel fusion", default=True),
         seed: int | None = Input(description="Blank selects a cryptographically random seed", default=None, ge=0, le=9223372036854775807),

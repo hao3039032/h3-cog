@@ -4,11 +4,12 @@
 ARG PYTHON_IMAGE=python:3.12.3-slim-bookworm
 FROM ${PYTHON_IMAGE}
 
-ARG COMFYUI_VERSION=v0.31.0
+ARG COMFYUI_VERSION=v0.33.0
 ARG COMFYUI_REPO=https://github.com/hao3039032/ComfyUI.git
-ARG COMFYUI_COMMIT=d648863a30fe8122ba609cfb7319e2b773809575
+ARG COMFYUI_COMMIT=2f35f4a08176d993cded35dac3332be4f7287f41
 ARG SOL_ATTN_COMMIT=930a4d6e432ff8b8ed5e30ff2f72519b92d69bdf
 ARG SAGEATTENTION_COMMIT=eb615cf6cf4d221338033340ee2de1c37fbdba4a
+ARG PDD_ACC_COMMIT=311a65dd53832d8a5f8177a9d5fb923c09e35a90
 ARG SAGE_CUDA_ARCH_LIST=8.9;12.0
 ARG MAX_JOBS=4
 
@@ -38,6 +39,13 @@ RUN git clone https://github.com/Saganaki22/ComfyUI-sol-attn.git \
         /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
     && git -C /opt/ComfyUI/custom_nodes/ComfyUI-sol-attn \
         checkout "${SOL_ATTN_COMMIT}"
+
+# PDD Acc inference needs ComfyUI v0.33.0+ (carried-audio mechanics) and this
+# node pack provides MiniMaxH3PDDAccApply plus the task-matched pdd_acc folder.
+RUN git clone https://github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc.git \
+        /opt/ComfyUI/custom_nodes/ComfyUI-MiniMax-H3-PDD-Acc \
+    && git -C /opt/ComfyUI/custom_nodes/ComfyUI-MiniMax-H3-PDD-Acc \
+        checkout "${PDD_ACC_COMMIT}"
 
 COPY docker/constraints.txt /tmp/constraints.txt
 RUN python -m pip install -c /tmp/constraints.txt \

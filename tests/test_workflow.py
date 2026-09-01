@@ -5,8 +5,12 @@ import pytest
 from h3_tuning import CacheTuning
 from h3_workflow import (
     ATTENTION_SAGE,
+    FL2VA_PDD_ACC,
     FL2VA_TURBO_LORA,
+    INFERENCE_PDD,
     INFERENCE_QUALITY,
+    PDD_NFE,
+    REF2VA_PDD_ACC,
     REF2VA_TURBO_LORA,
     build_workflow,
     infer_task,
@@ -278,6 +282,163 @@ def test_inference_mode_defaults_to_quality_and_rejects_unknown_values():
             seed=1,
             inference_mode="fast",
         )
+
+
+def test_t2va_pdd_uses_fl2va_pdd_file_euler_and_apply_sigmas():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=960,
+        height=544,
+        frames=124,
+        steps=24,
+        seed=9,
+        inference_mode="pdd",
+    )
+    assert graph["8"]["inputs"]["sampler_name"] == "euler"
+    assert "9" not in graph
+    assert graph["15"] == {
+        "class_type": "MiniMaxH3SigmaShift",
+        "inputs": {"model": ["1", 0], "shift_video": 12.0, "shift_audio": 3.0},
+    }
+    assert graph["16"] == {
+        "class_type": "MiniMaxH3PDDAccApply",
+        "inputs": {
+            "model": ["15", 0],
+            "pdd_file": FL2VA_PDD_ACC,
+            "nfe": "8",
+            "lora_strength": 1.0,
+            "head_strength": 1.0,
+            "on_off_grid": "error",
+            "partition_check": "error",
+        },
+    }
+    assert graph["17"] == {
+        "class_type": "MiniMaxH3FusedModulation",
+        "inputs": {"model": ["16", 0], "enabled": True},
+    }
+    assert graph["6"]["inputs"]["model"] == ["17", 0]
+    assert graph["10"]["inputs"]["sigmas"] == ["16", 1]
+
+
+def test_fl2va_pdd_matches_fl2va_partition_file():
+    graph = build_workflow(
+        prompt="p",
+        task="fl2va",
+        width=960,
+        height=544,
+        frames=124,
+        steps=12,
+        seed=9,
+        first_image_name="first.png",
+        loop=True,
+        inference_mode="pdd",
+    )
+    assert graph["16"]["inputs"]["pdd_file"] == FL2VA_PDD_ACC
+    assert graph["10"]["inputs"]["sigmas"] == ["16", 1]
+
+
+def test_ref2va_pdd_uses_ref2va_pdd_file():
+    graph = build_workflow(
+        prompt="p",
+        task="ref2va",
+        width=960,
+        height=544,
+        frames=124,
+        steps=24,
+        seed=9,
+        reference_image_names=["identity.png"],
+        inference_mode="pdd",
+    )
+    assert graph["16"]["inputs"]["pdd_file"] == REF2VA_PDD_ACC
+    assert graph["16"]["inputs"]["model"] == ["15", 0]
+    assert graph["10"]["inputs"]["sigmas"] == ["16", 1]
+
+
+def test_pdd_ignores_requested_steps_and_always_resolves_to_eight():
+    assert normalize_inference_mode(" PDD ") == INFERENCE_PDD
+    assert PDD_NFE == 8
+    for task in ("t2va", "fl2va", "ref2va"):
+        assert resolve_steps(task, 24, "pdd") == 8
+        assert resolve_steps(task, 60, "pdd") == 8
+
+
+def test_pdd_rejects_cache_tuning_before_submission():
+    cache = CacheTuning("balanced", 0.12, 0.15, 0.9, False, "sweep-1", "balanced")
+    with pytest.raises(ValueError, match="incompatible with EasyCache"):
+        build_workflow(
+            prompt="p",
+            task="t2va",
+            width=768,
+            height=768,
+            frames=124,
+            steps=24,
+            seed=9,
+            cache=cache,
+            inference_mode="pdd",
+        )
+
+
+def test_pdd_stacks_sol_attention_patch_after_apply_node():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=768,
+        height=768,
+        frames=124,
+        steps=24,
+        seed=9,
+        attention_backend="sol-int8-qk",
+        inference_mode="pdd",
+    )
+    assert graph["15"]["class_type"] == "MiniMaxH3SigmaShift"
+    assert graph["16"]["class_type"] == "MiniMaxH3PDDAccApply"
+    assert graph["17"]["class_type"] == "MiniMaxH3ScheduledSolAttentionPatch"
+    assert graph["17"]["inputs"]["model"] == ["16", 0]
+    assert graph["18"]["class_type"] == "MiniMaxH3FusedModulation"
+    assert graph["18"]["inputs"]["model"] == ["17", 0]
+    assert graph["10"]["inputs"]["sigmas"] == ["16", 1]
+
+
+def test_pdd_never_inserts_a_turbo_lora_loader():
+    for task, kwargs in (
+        ("t2va", {}),
+        ("fl2va", {"first_image_name": "first.png"}),
+        ("ref2va", {"reference_image_names": ["identity.png"]}),
+    ):
+        graph = build_workflow(
+            prompt="p",
+            task=task,
+            width=768,
+            height=768,
+            frames=124,
+            steps=24,
+            seed=9,
+            inference_mode="pdd",
+            **kwargs,
+        )
+        assert all(
+            node["class_type"] != "LoraLoaderModelOnly" for node in graph.values()
+        ), task
+
+
+def test_pdd_with_fused_modulation_disabled_keeps_apply_directly_on_guider():
+    graph = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=768,
+        height=768,
+        frames=124,
+        steps=24,
+        seed=9,
+        fused_modulation=False,
+        inference_mode="pdd",
+    )
+    assert graph["15"]["class_type"] == "MiniMaxH3SigmaShift"
+    assert graph["16"]["class_type"] == "MiniMaxH3PDDAccApply"
+    assert "17" not in graph
+    assert graph["6"]["inputs"]["model"] == ["16", 0]
+    assert graph["10"]["inputs"]["sigmas"] == ["16", 1]
 
 
 def test_task_partitions_follow_sglang_contract():

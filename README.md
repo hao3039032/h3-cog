@@ -38,6 +38,9 @@ does not permit it.
   reduced pixel area are exposed for previews.
 - Opt-in official LightX2V Turbo inference: FL2VA/T2VA uses the 8-step v1.0
   LoRA, while REF2VA automatically uses its matching 4-step v0.1 LoRA.
+- Opt-in official PDD 8-step Acc inference (`inference_mode=pdd`): T2VA/FL2VA
+  uses the FL2VA Acc LoRA+head bank and REF2VA uses its Ref2VA counterpart,
+  with Euler on the node's trained block-boundary sigmas.
 - default SageAttention with an opt-in per-request Sol-Attn residual INT8 QK
   path, plus PyTorch attention fallback and ComfyUI DynamicVRAM on every GPU size.
 - default-on, bit-exact H3 fused modulation for lower AdaLN and gated-residual
@@ -73,7 +76,7 @@ treating it as a quality-neutral default for production traffic.
 | `size` | `preview` | `preview`, `balanced`, `native` |
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
-| `inference_mode` | `quality` | `quality` uses `steps`; `turbo` automatically uses FL2V 8-step or Ref2V 4-step |
+| `inference_mode` | `quality` | `quality` uses `steps`; `turbo` uses FL2V 8-step or Ref2V 4-step; `pdd` is a fixed 8-step PDD Acc run |
 | `attention_backend` | `sage-attention` | `sage-attention` or experimental `sol-int8-qk` |
 | `fused_modulation` | `true` | Enables bit-exact H3 AdaLN and gated-residual Triton fusion |
 | `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
@@ -92,6 +95,31 @@ shifts `12/3`. T2VA and FL2VA use
 steps. REF2VA uses `minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors`
 for exactly 4 steps. The request's `steps` value is only used in `quality`
 mode. Quality remains the default on every interface.
+
+`inference_mode=pdd` runs the official MiniMax-H3 PDD Acc LoRAs
+(`alibaba-pai/MiniMax-H3-Acc-LoRAs`) at a fixed 8 NFE: T2VA and FL2VA use
+`MiniMax-H3-FL2VA-Acc-8Step.safetensors` and REF2VA uses
+`MiniMax-H3-Ref2VA-Acc-8Step.safetensors`. The workflow is
+`UNETLoader → MiniMaxH3SigmaShift(12,3) → MiniMaxH3PDDAccApply(nfe=8,
+lora/head strength 1.0, on_off_grid=error, partition_check=error)` with Euler,
+and the Apply node's trained block-boundary `SIGMAS` output feeds
+`SamplerCustomAdvanced` directly — no `BasicScheduler` and no turbo LoRA loader.
+`steps` is accepted for API compatibility but ignored; the effective step count
+is always 8 and is logged together with the caller's `requested_steps`. PDD is
+mutually exclusive with EasyCache: a PDD request carrying a cache tuning is
+rejected with an explicit error before anything is submitted to ComfyUI. Fused
+modulation and the optional Sol INT8-QK patch still stack after the Apply node.
+First release intentionally does not expose 4/6 NFE, custom partitions, or a
+PDD strength knob.
+
+The two PDD Acc files (1.37GB each, 2.56GiB total) are the only weights sourced
+from the official Hugging Face repo rather than ModelScope. They are optional:
+missing PDD files never block Quality/Turbo startup, but a PDD request fails
+with the exact missing path. Before the first PDD request the runtime also
+verifies via ComfyUI `object_info` that `MiniMaxH3PDDAccApply` and
+`MiniMaxH3SigmaShift` are available, so a node-less image fails fast instead of
+during sampling. PDD weights keep the MiniMax H3 Community License and the
+`MINIMAX_H3_LICENSE_ACCEPTED=1` gate.
 
 On a 48GB L40S, ComfyUI's DynamicVRAM path measured about 7% faster than
 estimate-based loading on the same 480x864, 362-frame workload.
@@ -160,14 +188,16 @@ with a first frame). For T2VA, pass `task=t2va` with no media. `preview`
 produces a 480-pixel short edge and is the recommended default for
 latency-sensitive use.
 
-The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI v0.31.0
-(`43cb4fffc89bba20ab7bd61467a36d0339338dab`), whose joint audio/video sampler
-contract matches the official H3 nodes. The published production image contains
+The first build installs CUDA 12.8 / PyTorch 2.11 and pins ComfyUI v0.33.0
+(`2f35f4a08176d993cded35dac3332be4f7287f41`), whose joint audio/video sampler
+contract matches the official H3 nodes and whose carried-audio mechanics are
+required by the PDD Acc node pack. The published production image contains
 its model weights.
 
 ## Verified weight sources
 
-The task-routing production set contains about 84.02GB of weights:
+The task-routing production set contains about 84.02GB of weights, plus two
+optional PDD Acc files adding 2.56GiB:
 
 ```text
 diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors
@@ -177,6 +207,8 @@ loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
 loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors
 vae/minimax_h3_video_vae_fp32.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
+pdd_acc/MiniMax-H3-FL2VA-Acc-8Step.safetensors      (optional, PDD mode)
+pdd_acc/MiniMax-H3-Ref2VA-Acc-8Step.safetensors     (optional, PDD mode)
 ```
 
 The FP32 video VAE is the deterministic Comfy-native repack published at
@@ -184,7 +216,9 @@ The FP32 video VAE is the deterministic Comfy-native repack published at
 and appends the two `[24]` latent normalization buffers expected by ComfyUI;
 the runtime enables `--fp32-vae`. Set `H3_VIDEO_VAE_PRECISION=fp16` to fall
 back to the smaller conversion for capacity-constrained workers. All selected
-weights are pinned to ModelScope. Provision them under
+weights are pinned to ModelScope except the two PDD Acc files, which are pinned
+to the official `alibaba-pai/MiniMax-H3-Acc-LoRAs` Hugging Face release.
+Provision them under
 `${WEIGHTS_DIR}/MiniMax-H3` before startup; the runtime links existing files
 into ComfyUI and consumes them as-is.
 
@@ -228,7 +262,8 @@ signed with `sign_tuning` from `h3_tuning.py`; the three named profiles are the
 recommended first pass. Never expose the secret in the app.nz client or public
 Cog schema.
 
-Each RunPod response includes schema-versioned metrics for total generation and
+Each RunPod response includes schema-versioned metrics (schema v2, which added
+`inference_mode="pdd"`) for total generation and
 encode time, dimensions, frame count, exact seed, output size and SHA-256, and
 the non-secret cache configuration. Compare every cache candidate with its
 same-seed `off` baseline. Promote a profile only after visual review of motion,
@@ -239,7 +274,8 @@ EasyCache speedup or quality claim is made before those GPU A/B results exist.
 
 Each pruned INT8 DiT is 20.97GB; the INT8 Qwen encoder is 27.14GB, visual VAE
 10.42GB, audio VAE 0.61GB, and the two Turbo LoRAs total 3.91GB. Both DiT
-partitions bring the selected set to about 84.02GB. They cannot all remain
+partitions bring the selected set to about 84.02GB; enabling PDD adds
+2.56GiB for the two Acc files (1.37GB each). They cannot all remain
 resident on a 24GB or 48GB card, so
 ComfyUI stages components between prompt encoding, denoising, and VAE decode.
 Use at least 96GB system RAM on DynamicVRAM workers and a persistent weight
@@ -293,4 +329,5 @@ and poster files and upserts stable `minimax-h3:<demo-id>` gallery records. Use
 - [ComfyUI H3 workflow documentation](https://docs.comfy.org/tutorials/video/minimax/minimax-h3)
 - [ComfyUI-packaged checkpoints](https://huggingface.co/Comfy-Org/MiniMax-H3)
 - [Official LightX2V MiniMax H3 Turbo LoRAs and settings](https://github.com/ModelTC/Minimax-H3-Turbo)
+- [Official PDD Acc LoRAs](https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs) and the [ComfyUI PDD node](https://github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc)
 - [MiniMax base-mode prompt guide](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md)

@@ -23,6 +23,7 @@ from h3_prompt import format_h3_prompt
 from h3_tuning import CacheTuning
 from h3_workflow import (
     ATTENTION_SAGE,
+    INFERENCE_PDD,
     INFERENCE_QUALITY,
     TASK_FL2VA,
     TASK_REF2VA,
@@ -36,10 +37,20 @@ from h3_workflow import (
     task_partition,
     validate_inputs,
 )
-from weights import COMFY_ROOT, ensure_diffusion_weights, ensure_weights, video_vae_precision
+from weights import (
+    COMFY_ROOT,
+    ensure_diffusion_weights,
+    ensure_pdd_weight,
+    ensure_weights,
+    video_vae_precision,
+)
 
 COMFY_URL = "http://127.0.0.1:8188"
 _ROUTE_LOCK = threading.Lock()
+PDD_REQUIRED_NODES = ("MiniMaxH3PDDAccApply", "MiniMaxH3SigmaShift")
+# ComfyUI loads custom nodes once at startup, so one successful probe is valid
+# for the whole process lifetime.
+_pdd_nodes_verified = False
 
 
 @dataclass(frozen=True)
@@ -70,6 +81,32 @@ def _comfy_error(status: dict) -> str:
         node = details.get("node_type") or details.get("node_id") or "unknown node"
         return f"{kind} in {node}: {text}"
     return "ComfyUI generation failed without an execution_error message"
+
+
+def verify_pdd_nodes() -> None:
+    """Fail before queueing a PDD workflow if its custom nodes are unavailable."""
+    global _pdd_nodes_verified
+    if _pdd_nodes_verified:
+        return
+    missing = []
+    for name in PDD_REQUIRED_NODES:
+        # Per-node endpoint keeps each response tiny instead of pulling the
+        # multi-megabyte full-node object_info dump.
+        try:
+            object_info = _json_request(f"/object_info/{name}", timeout=30)
+        except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+            raise RuntimeError(
+                f"could not query ComfyUI object_info to verify PDD node {name}: {error}"
+            ) from error
+        if name not in object_info:
+            missing.append(name)
+    if missing:
+        raise RuntimeError(
+            "PDD inference requires ComfyUI v0.33.0+ and the "
+            "ComfyUI-MiniMax-H3-PDD-Acc custom node; missing from this runtime: "
+            + ", ".join(missing)
+        )
+    _pdd_nodes_verified = True
 
 
 def _comfy_command() -> list[str]:
@@ -351,6 +388,13 @@ class H3Runtime:
         )
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
             raise ValueError("ref2va supports at most 9 images, 3 videos, and 3 audio clips")
+        if inference_mode == INFERENCE_PDD:
+            if cache is not None:
+                raise ValueError(
+                    "inference_mode=pdd is incompatible with EasyCache; drop the cache "
+                    "tuning or select quality/turbo inference"
+                )
+            verify_pdd_nodes()
         frames = aligned_frames(duration)
         width, height = dimensions(aspect_ratio, size)
         actual_seconds = frames / 24
@@ -407,6 +451,15 @@ class H3Runtime:
             )
             with _ROUTE_LOCK:
                 self._prepare_generation(task, partition)
+                if inference_mode == INFERENCE_PDD:
+                    # Symlink creation is not atomic; serialize it against
+                    # concurrent generations under the same route lock.
+                    ensure_pdd_weight(partition)
+                    print(
+                        f"H3 PDD route: partition={partition} nfe=8 "
+                        f"pdd_file={'Ref2VA' if partition == 'ref2va' else 'FL2VA'} Acc-8Step",
+                        flush=True,
+                    )
                 sample_started = time.monotonic()
                 queued = _json_request("/prompt", {"prompt": graph})
             prompt_id = queued.get("prompt_id")
@@ -445,7 +498,8 @@ class H3Runtime:
                     if not return_metrics:
                         return output
                     metrics = {
-                        "schema_version": 1,
+                        # v2: inference_mode gained the "pdd" value.
+                        "schema_version": 2,
                         "task": task,
                         "partition": partition,
                         "dit_switch_policy": self.dit_switch_policy,

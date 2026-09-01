@@ -35,7 +35,7 @@ def test_fl2va_weight_metadata_matches_verified_source():
     assert entry["url"].endswith("/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors")
 
 
-def test_weight_sources_are_pinned_to_modelscope_without_nvfp4():
+def test_weight_sources_are_pinned_with_pdd_as_the_only_hf_exception():
     assert set(weights.FILES) == {
         "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
         "vae/minimax_h3_video_vae_fp16.safetensors",
@@ -47,7 +47,12 @@ def test_weight_sources_are_pinned_to_modelscope_without_nvfp4():
     assert entry["size"] == 27_141_342_152
     assert entry["sha256"] == "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923"
     assert entry["url"] == "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-    assert all(entry["url"].startswith("https://modelscope.cn/models/") for entry in weights.VERIFIED_WEIGHTS.values())
+    hf_sourced = set(weights.PDD_ACC_RELATIVES)
+    for relative, entry in weights.VERIFIED_WEIGHTS.items():
+        if relative in hf_sourced:
+            assert entry["url"].startswith("https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main/")
+        else:
+            assert entry["url"].startswith("https://modelscope.cn/models/")
     assert "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" not in weights.VERIFIED_WEIGHTS
 
 
@@ -127,3 +132,61 @@ def test_both_diffusion_weights_are_linked_for_task_routing(monkeypatch, tmp_pat
     for relative in weights.DIFFUSION_RELATIVES:
         target = tmp_path / "comfy" / "models" / "diffusion_models" / Path(relative).name
         assert target.resolve() == installed[relative].resolve()
+
+
+def test_pdd_acc_metadata_matches_official_huggingface_release():
+    fl2va = weights.VERIFIED_WEIGHTS[weights.FL2VA_PDD_ACC_RELATIVE]
+    ref2va = weights.VERIFIED_WEIGHTS[weights.REF2VA_PDD_ACC_RELATIVE]
+    for entry in (fl2va, ref2va):
+        assert entry["size"] == 1_372_450_680
+    assert fl2va["sha256"] == "0b29be7042d883970eb0c20774a9ba03d95669ed80a721bb4d21be8ea0d0a196"
+    assert ref2va["sha256"] == "111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c"
+    assert fl2va["url"] == "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main/MiniMax-H3-FL2VA-Acc-8Step.safetensors"
+    assert ref2va["url"] == "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main/MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
+    assert set(weights.PDD_ACC_RELATIVES).isdisjoint(set(weights.FILES))
+
+
+def test_pdd_weights_are_lazily_linked_per_partition(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+
+    fl2va = tmp_path / "MiniMax-H3" / weights.FL2VA_PDD_ACC_RELATIVE
+    fl2va.parent.mkdir(parents=True, exist_ok=True)
+    fl2va.write_bytes(b"pdd-data")
+
+    installed = weights.ensure_pdd_weight("fl2va")
+    assert installed == fl2va
+    target = tmp_path / "comfy" / "models" / "pdd_acc" / "MiniMax-H3-FL2VA-Acc-8Step.safetensors"
+    assert target.resolve() == fl2va.resolve()
+
+    with pytest.raises(FileNotFoundError, match=weights.REF2VA_PDD_ACC_RELATIVE):
+        weights.ensure_pdd_weight("ref2va")
+
+
+def test_missing_pdd_weight_does_not_block_startup(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+
+    for relative, folder in weights._selected_files().items():
+        destination = tmp_path / "MiniMax-H3" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"operational-data")
+
+    weights.ensure_weights()
+    with pytest.raises(FileNotFoundError, match="PDD Acc weight is missing"):
+        weights.ensure_pdd_weight("fl2va")
+
+
+def test_pdd_partition_mapping_rejects_unknown_partitions():
+    assert weights.pdd_weight_relative("fl2va") == weights.FL2VA_PDD_ACC_RELATIVE
+    assert weights.pdd_weight_relative("ref2va") == weights.REF2VA_PDD_ACC_RELATIVE
+    with pytest.raises(ValueError, match="unknown partition"):
+        weights.pdd_weight_relative("t2va")
+
+
+def test_pdd_weights_require_license_acceptance(monkeypatch):
+    monkeypatch.delenv("MINIMAX_H3_LICENSE_ACCEPTED", raising=False)
+    with pytest.raises(RuntimeError, match="reviewing and accepting"):
+        weights.ensure_pdd_weight("fl2va")

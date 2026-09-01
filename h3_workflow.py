@@ -21,7 +21,9 @@ ATTENTION_BACKENDS = (ATTENTION_SAGE, ATTENTION_SOL_INT8_QK)
 
 INFERENCE_QUALITY = "quality"
 INFERENCE_TURBO = "turbo"
-INFERENCE_MODES = (INFERENCE_QUALITY, INFERENCE_TURBO)
+INFERENCE_PDD = "pdd"
+INFERENCE_MODES = (INFERENCE_QUALITY, INFERENCE_TURBO, INFERENCE_PDD)
+PDD_NFE = 8
 
 
 def normalize_attention_backend(value: str) -> str:
@@ -47,6 +49,8 @@ def resolve_steps(task: str, requested_steps: int, inference_mode: str) -> int:
     mode = normalize_inference_mode(inference_mode)
     if mode == INFERENCE_QUALITY:
         return int(requested_steps)
+    if mode == INFERENCE_PDD:
+        return PDD_NFE
     return 4 if task == TASK_REF2VA else 8
 
 
@@ -61,6 +65,8 @@ TEXT_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
 FL2VA_TURBO_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 REF2VA_TURBO_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+FL2VA_PDD_ACC = "MiniMax-H3-FL2VA-Acc-8Step.safetensors"
+REF2VA_PDD_ACC = "MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
 
 ASPECTS = {
     "16:9": (1344, 768),
@@ -226,8 +232,14 @@ def build_workflow(
     )
 
     turbo = inference_mode == INFERENCE_TURBO
+    pdd = inference_mode == INFERENCE_PDD
+    if pdd and cache is not None:
+        raise ValueError(
+            "inference_mode=pdd is incompatible with EasyCache; drop the cache tuning "
+            "or select quality/turbo inference"
+        )
     effective_steps = resolve_steps(task, steps, inference_mode)
-    sampler_name = "euler" if turbo else "res_multistep"
+    sampler_name = "euler" if turbo or pdd else "res_multistep"
 
     if task == TASK_REF2VA:
         model_name = REF2VA_MODEL
@@ -267,7 +279,8 @@ def build_workflow(
         "6": {"class_type": "BasicGuider", "inputs": {"model": ["1", 0], "conditioning": ["5", 0]}},
         "7": {"class_type": "RandomNoise", "inputs": {"noise_seed": int(seed)}},
         "8": {"class_type": "KSamplerSelect", "inputs": {"sampler_name": sampler_name}},
-        "9": {"class_type": "BasicScheduler", "inputs": {"model": ["1", 0], "scheduler": "simple", "steps": effective_steps, "denoise": 1.0}},
+        # "9" BasicScheduler is appended for quality/turbo; PDD takes the Apply
+        # node's trained block-boundary SIGMAS output instead.
         "10": {
             "class_type": "SamplerCustomAdvanced",
             "inputs": {"noise": ["7", 0], "guider": ["6", 0], "sampler": ["8", 0], "sigmas": ["9", 0], "latent_image": ["5", 1]},
@@ -292,6 +305,7 @@ def build_workflow(
     }
     next_id = 15
     model_link: list[str | int] = ["1", 0]
+    sigmas_link: list[str | int] = ["9", 0]
 
     if turbo:
         lora_name = REF2VA_TURBO_LORA if task == TASK_REF2VA else FL2VA_TURBO_LORA
@@ -305,6 +319,8 @@ def build_workflow(
         }
         model_link = [str(next_id), 0]
         next_id += 1
+
+    if turbo or pdd:
         graph[str(next_id)] = {
             "class_type": "MiniMaxH3SigmaShift",
             "inputs": {
@@ -315,6 +331,31 @@ def build_workflow(
         }
         model_link = [str(next_id), 0]
         next_id += 1
+
+    if pdd:
+        # Order matters: the Apply node patches the trunk LoRA + fused final
+        # heads and emits the trained 8-NFE block-boundary SIGMAS; downstream
+        # attention/fused-modulation patches then stack on its MODEL output.
+        graph[str(next_id)] = {
+            "class_type": "MiniMaxH3PDDAccApply",
+            "inputs": {
+                "model": model_link,
+                "pdd_file": REF2VA_PDD_ACC if task == TASK_REF2VA else FL2VA_PDD_ACC,
+                "nfe": str(PDD_NFE),
+                "lora_strength": 1.0,
+                "head_strength": 1.0,
+                "on_off_grid": "error",
+                "partition_check": "error",
+            },
+        }
+        model_link = [str(next_id), 0]
+        sigmas_link = [str(next_id), 1]
+        next_id += 1
+    else:
+        graph["9"] = {
+            "class_type": "BasicScheduler",
+            "inputs": {"model": ["1", 0], "scheduler": "simple", "steps": effective_steps, "denoise": 1.0},
+        }
 
     if attention_backend == ATTENTION_SOL_INT8_QK:
         graph[str(next_id)] = {
@@ -364,7 +405,9 @@ def build_workflow(
         next_id += 1
 
     graph["6"]["inputs"]["model"] = model_link
-    graph["9"]["inputs"]["model"] = model_link
+    graph["10"]["inputs"]["sigmas"] = sigmas_link
+    if "9" in graph:
+        graph["9"]["inputs"]["model"] = model_link
 
     if task != TASK_REF2VA:
         first_output_id: str | None = None

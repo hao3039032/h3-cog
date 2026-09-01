@@ -7,6 +7,7 @@ from pathlib import Path
 
 SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
 REPACKAGED_VAE_SOURCE_BASE = "https://modelscope.cn/models/Austusm/minimax_h3_video_vae/resolve/master"
+PDD_SOURCE_BASE = "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main"
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/opt/ComfyUI"))
 TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 FL2VA_RELATIVE = "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
@@ -16,6 +17,11 @@ VIDEO_VAE_FP16_RELATIVE = "vae/minimax_h3_video_vae_fp16.safetensors"
 VIDEO_VAE_FP32_RELATIVE = "vae/minimax_h3_video_vae_fp32.safetensors"
 FL2VA_TURBO_LORA_RELATIVE = "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 REF2VA_TURBO_LORA_RELATIVE = "loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+FL2VA_PDD_ACC_RELATIVE = "pdd_acc/MiniMax-H3-FL2VA-Acc-8Step.safetensors"
+REF2VA_PDD_ACC_RELATIVE = "pdd_acc/MiniMax-H3-Ref2VA-Acc-8Step.safetensors"
+# PDD Acc files are optional at startup and are only checked/linked lazily on a
+# pdd request; they are the sole weights sourced from the official HF repo.
+PDD_ACC_RELATIVES = (FL2VA_PDD_ACC_RELATIVE, REF2VA_PDD_ACC_RELATIVE)
 FILES = {
     TEXT_ENCODER_RELATIVE: "text_encoders",
     VIDEO_VAE_FP16_RELATIVE: "vae",
@@ -64,6 +70,16 @@ VERIFIED_WEIGHTS = {
         "size": 20_970_379_616,
         "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779",
         "url": f"{SOURCE_BASE}/{REF2VA_RELATIVE}",
+    },
+    FL2VA_PDD_ACC_RELATIVE: {
+        "size": 1_372_450_680,
+        "sha256": "0b29be7042d883970eb0c20774a9ba03d95669ed80a721bb4d21be8ea0d0a196",
+        "url": f"{PDD_SOURCE_BASE}/MiniMax-H3-FL2VA-Acc-8Step.safetensors",
+    },
+    REF2VA_PDD_ACC_RELATIVE: {
+        "size": 1_372_450_680,
+        "sha256": "111c82e669f6e20e628228172edf39395f1a9fc3ad049793895e542c0f55b18c",
+        "url": f"{PDD_SOURCE_BASE}/MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
     },
 }
 
@@ -160,3 +176,34 @@ def ensure_fl2va_weight() -> Path:
 
 def ensure_diffusion_weights() -> dict[str, Path]:
     return {relative: _ensure_diffusion_weight(relative) for relative in DIFFUSION_RELATIVES}
+
+
+def _ensure_pdd_weight(relative: str) -> Path:
+    """Lazily check and link a PDD Acc file; never block quality/turbo startup."""
+    if not license_accepted():
+        raise RuntimeError(
+            "Set MINIMAX_H3_LICENSE_ACCEPTED=1 only after reviewing and accepting "
+            "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE"
+        )
+    root = weights_root() / "MiniMax-H3"
+    destination = root / relative
+    if not destination.is_file():
+        raise FileNotFoundError(
+            "PDD Acc weight is missing; provision it before using inference_mode=pdd:\n"
+            f"- {destination}"
+        )
+    _install_link(destination, "pdd_acc")
+    return destination
+
+
+def pdd_weight_relative(task_partition_name: str) -> str:
+    """Map an FL2VA/REF2VA partition to its task-matched PDD Acc file."""
+    if task_partition_name == "ref2va":
+        return REF2VA_PDD_ACC_RELATIVE
+    if task_partition_name == "fl2va":
+        return FL2VA_PDD_ACC_RELATIVE
+    raise ValueError(f"unknown partition for PDD weights: {task_partition_name}")
+
+
+def ensure_pdd_weight(partition: str) -> Path:
+    return _ensure_pdd_weight(pdd_weight_relative(partition))

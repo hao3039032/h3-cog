@@ -1,8 +1,9 @@
 # Docker Deployment
 
 This image reproduces the validated single-GPU CUDA 13 stack from source:
-Python 3.12, PyTorch 2.12.1+cu130, ComfyUI v0.31.0
-(`43cb4fff...`), and SageAttention `eb615cf...`. It intentionally does not
+Python 3.12, PyTorch 2.12.1+cu130, ComfyUI v0.33.0
+(`2f35f4a0...`), SageAttention `eb615cf...`, and the MiniMax-H3 PDD Acc node
+pack `311a65d...`. It intentionally does not
 install custom distributed nodes: the portable target is the native
 single-process ComfyUI path.
 
@@ -39,6 +40,14 @@ default FP32 visual VAE and two Turbo LoRAs bring the selected set to about
 the files listed in the README before startup. The app links those files into
 ComfyUI and consumes them as-is; missing files fail startup with their full
 paths.
+
+PDD mode (`inference_mode=pdd`) additionally needs the two optional
+`pdd_acc/MiniMax-H3-*-Acc-8Step.safetensors` files (1.37GB each, +2.56GiB).
+They are checked lazily per request: without them the container still boots and
+serves quality/turbo, and a PDD request fails with the missing path. Plan
+roughly 91GB of storage when enabling PDD. On a 32GB RTX 5090, PDD at
+`preview` with SageAttention plus fused modulation is the recommended setting;
+Sol INT8-QK remains an opt-in combination to A/B test separately.
 
 Set `H3_VIDEO_VAE_PRECISION=fp16` to use the 5.21GB visual VAE instead. This
 is useful on storage-constrained workers, but it intentionally gives up the

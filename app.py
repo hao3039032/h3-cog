@@ -20,6 +20,7 @@ from h3_runtime import H3Runtime
 from h3_workflow import (
     ATTENTION_SAGE,
     ATTENTION_SOL_INT8_QK,
+    INFERENCE_PDD,
     INFERENCE_QUALITY,
     INFERENCE_TURBO,
     infer_task,
@@ -193,13 +194,14 @@ def build_demo() -> gr.Blocks:
                     aspect_ratio = gr.Dropdown(["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"], value="9:16", label="画幅")
                     size = gr.Dropdown(["preview", "balanced", "native"], value="preview", label="尺寸（preview 为 480p）")
                     duration = gr.Slider(4, 15, value=5, step=0.5, label="时长（秒）")
-                    steps = gr.Slider(8, 60, value=24, step=1, label="常规模式采样步数（Turbo 自动 8/4 步）")
+                    steps = gr.Slider(8, 60, value=24, step=1, label="常规模式采样步数（Turbo 8/4 步，PDD 固定 8 步）")
                 with gr.Row():
                     seed = gr.Textbox(value="", label="Seed（留空随机）")
                     inference_mode = gr.Dropdown(
                         choices=[
                             ("质量模式（默认）", INFERENCE_QUALITY),
                             ("Turbo（T2/FL 8 步，Ref 4 步）", INFERENCE_TURBO),
+                            ("PDD Acc（固定 8 步）", INFERENCE_PDD),
                         ],
                         value=INFERENCE_QUALITY,
                         label="推理模式",
