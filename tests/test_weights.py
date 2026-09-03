@@ -68,9 +68,10 @@ def test_nvfp4_metadata_matches_pinned_single_pass_release():
         "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
         "url": f"{weights.SOURCE_BASE}/{weights.NVFP4_TEXT_ENCODER_RELATIVE}",
     }
-    assert fl2va["size"] == ref2va["size"] == 12_528_636_800
-    assert fl2va["sha256"] == "72fa9269ce551fb63ff42a32d9b46d0c122e84b4b2c511e22fa698287b088f70"
-    assert ref2va["sha256"] == "c813c5eabd85e275daccbf45e6f8ac4d9d14a1827d425e5be5070c92c60b78ac"
+    assert fl2va["size"] == 12_528_636_865
+    assert ref2va["size"] == 12_528_636_866
+    assert fl2va["sha256"] == "6ab7f0c48141e7919b32f925ca3def22e06a6aebeb9e0b6f5a0be0fe8409976f"
+    assert ref2va["sha256"] == "3e1be702c95bc057c05a7d1867e8aeea33073dcf5743835f2f27f06a2f34c596"
     assert weights.NVFP4_DIT_REVISION in fl2va["url"]
     assert weights.NVFP4_DIT_REVISION in ref2va["url"]
 

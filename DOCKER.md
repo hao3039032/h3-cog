@@ -52,7 +52,7 @@ Sol INT8-QK remains an opt-in combination to A/B test separately.
 NVFP4 quantization (`model_quantization=nvfp4`) additionally needs three
 optional files (about 40.74GB): the two
 `diffusion_models/minimax_h3_*_pruned_nvfp4.safetensors` DiTs (12.53GB each,
-pinned to the third-party `lilcheaty/MiniMax-H3-NVFP4` conversion) and
+pinned to the third-party `Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot` conversion) and
 `text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (15.69GB,
 official Comfy-Org release). They are also checked lazily per request and never
 block the INT8 default path. This path exists for Blackwell GPUs — a 32GB RTX

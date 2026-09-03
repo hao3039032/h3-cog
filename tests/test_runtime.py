@@ -89,7 +89,7 @@ def test_nvfp4_generation_links_profile_and_routes_quantized_graph(tmp_path, mon
     def fake_json_request(path, payload=None, timeout=60):
         if path == "/prompt":
             graph = payload["prompt"]
-            assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_nvfp4.safetensors"
+            assert graph["1"]["inputs"]["unet_name"] == "MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors"
             assert graph["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
             return {"prompt_id": "job-nvfp4"}
         return {"job-nvfp4": {"status": {"completed": True}, "outputs": {}}}

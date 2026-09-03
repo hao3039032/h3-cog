@@ -8,9 +8,9 @@ from pathlib import Path
 SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
 REPACKAGED_VAE_SOURCE_BASE = "https://modelscope.cn/models/Austusm/minimax_h3_video_vae/resolve/master"
 PDD_SOURCE_BASE = "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main"
-NVFP4_DIT_REVISION = "8c5abfed61e1b6a170240792b65253fba1a65b7b"
+NVFP4_DIT_REVISION = "908eccad7e68751190d04c171956f163bfeed741"
 NVFP4_DIT_SOURCE_BASE = (
-    "https://huggingface.co/lilcheaty/MiniMax-H3-NVFP4/resolve/"
+    "https://huggingface.co/Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot/resolve/"
     + NVFP4_DIT_REVISION
 )
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/opt/ComfyUI"))
@@ -22,8 +22,8 @@ FL2VA_RELATIVE = "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetens
 REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 DIFFUSION_RELATIVES = (FL2VA_RELATIVE, REF2VA_RELATIVE)
 NVFP4_TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
-FL2VA_NVFP4_RELATIVE = "diffusion_models/minimax_h3_fl2va_pruned_nvfp4.safetensors"
-REF2VA_NVFP4_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_nvfp4.safetensors"
+FL2VA_NVFP4_RELATIVE = "diffusion_models/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors"
+REF2VA_NVFP4_RELATIVE = "diffusion_models/MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors"
 NVFP4_DIFFUSION_RELATIVES = (FL2VA_NVFP4_RELATIVE, REF2VA_NVFP4_RELATIVE)
 MODEL_PROFILES = {
     MODEL_QUANTIZATION_INT8: {
@@ -101,14 +101,14 @@ VERIFIED_WEIGHTS = {
         "url": f"{SOURCE_BASE}/{NVFP4_TEXT_ENCODER_RELATIVE}",
     },
     FL2VA_NVFP4_RELATIVE: {
-        "size": 12_528_636_800,
-        "sha256": "72fa9269ce551fb63ff42a32d9b46d0c122e84b4b2c511e22fa698287b088f70",
-        "url": f"{NVFP4_DIT_SOURCE_BASE}/minimax_h3_fl2va_pruned_nvfp4.safetensors",
+        "size": 12_528_636_865,
+        "sha256": "6ab7f0c48141e7919b32f925ca3def22e06a6aebeb9e0b6f5a0be0fe8409976f",
+        "url": f"{NVFP4_DIT_SOURCE_BASE}/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors",
     },
     REF2VA_NVFP4_RELATIVE: {
-        "size": 12_528_636_800,
-        "sha256": "c813c5eabd85e275daccbf45e6f8ac4d9d14a1827d425e5be5070c92c60b78ac",
-        "url": f"{NVFP4_DIT_SOURCE_BASE}/minimax_h3_ref2va_pruned_nvfp4.safetensors",
+        "size": 12_528_636_866,
+        "sha256": "3e1be702c95bc057c05a7d1867e8aeea33073dcf5743835f2f27f06a2f34c596",
+        "url": f"{NVFP4_DIT_SOURCE_BASE}/MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors",
     },
     FL2VA_PDD_ACC_RELATIVE: {
         "size": 1_372_450_680,

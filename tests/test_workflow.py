@@ -59,7 +59,7 @@ def test_nvfp4_selects_task_matched_dit_and_text_encoder():
         seed=7,
         model_quantization=MODEL_QUANTIZATION_NVFP4,
     )
-    assert fl2va["1"]["inputs"]["unet_name"] == "minimax_h3_fl2va_pruned_nvfp4.safetensors"
+    assert fl2va["1"]["inputs"]["unet_name"] == "MiniMax_H3_FL2VA_pruned_nvfp4.safetensors"
     assert fl2va["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 
     ref2va = build_workflow(
@@ -73,7 +73,7 @@ def test_nvfp4_selects_task_matched_dit_and_text_encoder():
         reference_image_names=["identity.png"],
         model_quantization=MODEL_QUANTIZATION_NVFP4,
     )
-    assert ref2va["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_nvfp4.safetensors"
+    assert ref2va["1"]["inputs"]["unet_name"] == "MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors"
     assert ref2va["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
 
 

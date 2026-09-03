@@ -128,11 +128,11 @@ during sampling. PDD weights keep the MiniMax H3 Community License and the
 `MINIMAX_H3_LICENSE_ACCEPTED=1` gate.
 
 `model_quantization=nvfp4` is an experimental, request-level model swap. It
-replaces the partition DiT with `minimax_h3_{fl2va,ref2va}_pruned_nvfp4.safetensors`
+replaces the partition DiT with `MiniMax_H3_{FL2VA,Ref2VA}_pruned_nvfp4.safetensors`
 (12.53GB each) and the text encoder with the official
 `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (15.69GB). The two NVFP4 DiTs
 are third-party single-pass conversions pinned to
-`lilcheaty/MiniMax-H3-NVFP4` at a fixed revision; unlike every other weight in
+`Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot` at a fixed revision; unlike every other weight in
 this repository they are not published by MiniMax or Comfy-Org, so treat their
 outputs as unvalidated until your own same-seed INT8 comparison passes. NVFP4
 compute is natively accelerated only on Blackwell (SM120+) GPUs such as RTX
@@ -231,8 +231,8 @@ vae/minimax_h3_video_vae_fp32.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
 pdd_acc/MiniMax-H3-FL2VA-Acc-8Step.safetensors      (optional, PDD mode)
 pdd_acc/MiniMax-H3-Ref2VA-Acc-8Step.safetensors     (optional, PDD mode)
-diffusion_models/minimax_h3_fl2va_pruned_nvfp4.safetensors   (optional, NVFP4)
-diffusion_models/minimax_h3_ref2va_pruned_nvfp4.safetensors  (optional, NVFP4)
+diffusion_models/MiniMax_H3_FL2VA_pruned_nvfp4.safetensors   (optional, NVFP4)
+diffusion_models/MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors  (optional, NVFP4)
 text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors   (optional, NVFP4)
 ```
 
@@ -244,7 +244,7 @@ back to the smaller conversion for capacity-constrained workers. All selected
 weights are pinned to ModelScope except the two PDD Acc files, which are pinned
 to the official `alibaba-pai/MiniMax-H3-Acc-LoRAs` Hugging Face release, and
 the two NVFP4 DiTs, which are pinned to the third-party
-`lilcheaty/MiniMax-H3-NVFP4` conversion at a fixed commit.
+`Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot` conversion at a fixed commit.
 Provision them under
 `${WEIGHTS_DIR}/MiniMax-H3` before startup; the runtime links existing files
 into ComfyUI and consumes them as-is.
