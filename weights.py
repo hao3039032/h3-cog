@@ -8,11 +8,35 @@ from pathlib import Path
 SOURCE_BASE = "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master"
 REPACKAGED_VAE_SOURCE_BASE = "https://modelscope.cn/models/Austusm/minimax_h3_video_vae/resolve/master"
 PDD_SOURCE_BASE = "https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main"
+NVFP4_DIT_REVISION = "8c5abfed61e1b6a170240792b65253fba1a65b7b"
+NVFP4_DIT_SOURCE_BASE = (
+    "https://huggingface.co/lilcheaty/MiniMax-H3-NVFP4/resolve/"
+    + NVFP4_DIT_REVISION
+)
 COMFY_ROOT = Path(os.getenv("COMFY_ROOT", "/opt/ComfyUI"))
+MODEL_QUANTIZATION_INT8 = "int8"
+MODEL_QUANTIZATION_NVFP4 = "nvfp4"
+MODEL_QUANTIZATIONS = (MODEL_QUANTIZATION_INT8, MODEL_QUANTIZATION_NVFP4)
 TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 FL2VA_RELATIVE = "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors"
 REF2VA_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
 DIFFUSION_RELATIVES = (FL2VA_RELATIVE, REF2VA_RELATIVE)
+NVFP4_TEXT_ENCODER_RELATIVE = "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+FL2VA_NVFP4_RELATIVE = "diffusion_models/minimax_h3_fl2va_pruned_nvfp4.safetensors"
+REF2VA_NVFP4_RELATIVE = "diffusion_models/minimax_h3_ref2va_pruned_nvfp4.safetensors"
+NVFP4_DIFFUSION_RELATIVES = (FL2VA_NVFP4_RELATIVE, REF2VA_NVFP4_RELATIVE)
+MODEL_PROFILES = {
+    MODEL_QUANTIZATION_INT8: {
+        "text_encoder": TEXT_ENCODER_RELATIVE,
+        "fl2va": FL2VA_RELATIVE,
+        "ref2va": REF2VA_RELATIVE,
+    },
+    MODEL_QUANTIZATION_NVFP4: {
+        "text_encoder": NVFP4_TEXT_ENCODER_RELATIVE,
+        "fl2va": FL2VA_NVFP4_RELATIVE,
+        "ref2va": REF2VA_NVFP4_RELATIVE,
+    },
+}
 VIDEO_VAE_FP16_RELATIVE = "vae/minimax_h3_video_vae_fp16.safetensors"
 VIDEO_VAE_FP32_RELATIVE = "vae/minimax_h3_video_vae_fp32.safetensors"
 FL2VA_TURBO_LORA_RELATIVE = "loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
@@ -71,6 +95,21 @@ VERIFIED_WEIGHTS = {
         "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779",
         "url": f"{SOURCE_BASE}/{REF2VA_RELATIVE}",
     },
+    NVFP4_TEXT_ENCODER_RELATIVE: {
+        "size": 15_687_142_551,
+        "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
+        "url": f"{SOURCE_BASE}/{NVFP4_TEXT_ENCODER_RELATIVE}",
+    },
+    FL2VA_NVFP4_RELATIVE: {
+        "size": 12_528_636_800,
+        "sha256": "72fa9269ce551fb63ff42a32d9b46d0c122e84b4b2c511e22fa698287b088f70",
+        "url": f"{NVFP4_DIT_SOURCE_BASE}/minimax_h3_fl2va_pruned_nvfp4.safetensors",
+    },
+    REF2VA_NVFP4_RELATIVE: {
+        "size": 12_528_636_800,
+        "sha256": "c813c5eabd85e275daccbf45e6f8ac4d9d14a1827d425e5be5070c92c60b78ac",
+        "url": f"{NVFP4_DIT_SOURCE_BASE}/minimax_h3_ref2va_pruned_nvfp4.safetensors",
+    },
     FL2VA_PDD_ACC_RELATIVE: {
         "size": 1_372_450_680,
         "sha256": "0b29be7042d883970eb0c20774a9ba03d95669ed80a721bb4d21be8ea0d0a196",
@@ -82,6 +121,33 @@ VERIFIED_WEIGHTS = {
         "url": f"{PDD_SOURCE_BASE}/MiniMax-H3-Ref2VA-Acc-8Step.safetensors",
     },
 }
+
+
+def normalize_model_quantization(value: str) -> str:
+    quantization = str(value or "").strip().lower()
+    if quantization not in MODEL_QUANTIZATIONS:
+        raise ValueError(
+            "model_quantization must be one of: " + ", ".join(MODEL_QUANTIZATIONS)
+        )
+    return quantization
+
+
+def model_profile_relatives(model_quantization: str, partition: str) -> tuple[str, str]:
+    quantization = normalize_model_quantization(model_quantization)
+    if partition not in {"fl2va", "ref2va"}:
+        raise ValueError("partition must be fl2va or ref2va")
+    profile = MODEL_PROFILES[quantization]
+    return profile["text_encoder"], profile[partition]
+
+
+def text_encoder_filename(model_quantization: str) -> str:
+    relative, _ = model_profile_relatives(model_quantization, "fl2va")
+    return relative.rsplit("/", 1)[-1]
+
+
+def diffusion_filename(model_quantization: str, partition: str) -> str:
+    _, relative = model_profile_relatives(model_quantization, partition)
+    return relative.rsplit("/", 1)[-1]
 
 
 def video_vae_precision() -> str:
@@ -176,6 +242,29 @@ def ensure_fl2va_weight() -> Path:
 
 def ensure_diffusion_weights() -> dict[str, Path]:
     return {relative: _ensure_diffusion_weight(relative) for relative in DIFFUSION_RELATIVES}
+
+
+def ensure_model_profile(partition: str, model_quantization: str) -> dict[str, Path]:
+    """Lazily link the two files needed by one request's model profile."""
+    if not license_accepted():
+        raise RuntimeError(
+            "Set MINIMAX_H3_LICENSE_ACCEPTED=1 only after reviewing and accepting "
+            "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE"
+        )
+    quantization = normalize_model_quantization(model_quantization)
+    relatives = model_profile_relatives(quantization, partition)
+    root = weights_root() / "MiniMax-H3"
+    installed = {relative: root / relative for relative in relatives}
+    missing = [path for path in installed.values() if not path.is_file()]
+    if missing:
+        details = "\n".join(f"- {path}" for path in missing)
+        raise FileNotFoundError(
+            f"{quantization.upper()} MiniMax H3 weights are missing; provision them before "
+            f"using model_quantization={quantization}:\n{details}"
+        )
+    _install_link(installed[relatives[0]], "text_encoders")
+    _install_link(installed[relatives[1]], "diffusion_models")
+    return installed
 
 
 def _ensure_pdd_weight(relative: str) -> Path:

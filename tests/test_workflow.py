@@ -9,6 +9,8 @@ from h3_workflow import (
     FL2VA_TURBO_LORA,
     INFERENCE_PDD,
     INFERENCE_QUALITY,
+    MODEL_QUANTIZATION_INT8,
+    MODEL_QUANTIZATION_NVFP4,
     PDD_NFE,
     REF2VA_PDD_ACC,
     REF2VA_TURBO_LORA,
@@ -16,6 +18,7 @@ from h3_workflow import (
     infer_task,
     normalize_attention_backend,
     normalize_inference_mode,
+    normalize_model_quantization,
     normalize_task,
     resolve_steps,
     task_partition,
@@ -43,6 +46,42 @@ def test_t2va_selects_fl2va_partition_and_image_conditioning():
     assert graph["9"]["inputs"]["model"] == ["15", 0]
     assert "first_frame" not in graph["5"]["inputs"]
     assert "last_frame" not in graph["5"]["inputs"]
+
+
+def test_nvfp4_selects_task_matched_dit_and_text_encoder():
+    fl2va = build_workflow(
+        prompt="p",
+        task="t2va",
+        width=1344,
+        height=768,
+        frames=124,
+        steps=20,
+        seed=7,
+        model_quantization=MODEL_QUANTIZATION_NVFP4,
+    )
+    assert fl2va["1"]["inputs"]["unet_name"] == "minimax_h3_fl2va_pruned_nvfp4.safetensors"
+    assert fl2va["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+
+    ref2va = build_workflow(
+        prompt="Use <Picture 1>.",
+        task="ref2va",
+        width=768,
+        height=1344,
+        frames=124,
+        steps=20,
+        seed=8,
+        reference_image_names=["identity.png"],
+        model_quantization=MODEL_QUANTIZATION_NVFP4,
+    )
+    assert ref2va["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_nvfp4.safetensors"
+    assert ref2va["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+
+
+def test_model_quantization_defaults_to_int8_and_rejects_unknown_values():
+    assert normalize_model_quantization(" INT8 ") == MODEL_QUANTIZATION_INT8
+    assert normalize_model_quantization("NVFP4") == MODEL_QUANTIZATION_NVFP4
+    with pytest.raises(ValueError, match="model_quantization"):
+        normalize_model_quantization("fp8")
 
 
 def test_fl2va_preprocesses_both_keyframes_to_target_canvas():

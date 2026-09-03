@@ -34,7 +34,8 @@ The ModelScope Studio entry file is `app.py`. It lazily starts ComfyUI on the
 first request. The 84.02GB weight set must already be provisioned at
 `WEIGHTS_DIR`; missing files fail that initialization with their full paths.
 PDD mode additionally needs the two optional `pdd_acc/` Acc files (+2.56GiB),
-checked lazily per request. Configure these environment variables:
+checked lazily per request, and NVFP4 quantization needs its three optional
+files (+40.74GB), also checked lazily. Configure these environment variables:
 
 ```text
 MINIMAX_H3_LICENSE_ACCEPTED=1

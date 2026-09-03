@@ -18,6 +18,7 @@ def test_generation_metrics_cover_output_identity_and_task_route(tmp_path, monke
     runtime.dit_switch_policy = "auto"
     runtime.current_task = None
     runtime.current_partition = None
+    runtime.current_model_quantization = None
     monkeypatch.setattr(runtime, "_stage_media", lambda path, label, index: "identity.png")
     monkeypatch.setattr(runtime, "_history_output", lambda entry: raw)
     monkeypatch.setattr(h3_runtime.time, "sleep", lambda seconds: None)
@@ -54,6 +55,8 @@ def test_generation_metrics_cover_output_identity_and_task_route(tmp_path, monke
     assert result.metrics["cache"] == {"profile": "off"}
     assert result.metrics["attention_backend"] == "sage-attention"
     assert result.metrics["inference_mode"] == "quality"
+    assert result.metrics["model_quantization"] == "int8"
+    assert result.metrics["schema_version"] == 3
     assert result.metrics["requested_steps"] == 24
     assert result.metrics["fused_modulation"] is True
     assert result.metrics["output_bytes"] == len(b"encoded-video")
@@ -62,12 +65,59 @@ def test_generation_metrics_cover_output_identity_and_task_route(tmp_path, monke
     assert result.metrics["encode_seconds"] >= 0
 
 
+def test_nvfp4_generation_links_profile_and_routes_quantized_graph(tmp_path, monkeypatch):
+    raw = tmp_path / "raw.mp4"
+    raw.write_bytes(b"raw")
+    encoded = tmp_path / "result.mp4"
+    encoded.write_bytes(b"encoded")
+    runtime = object.__new__(H3Runtime)
+    runtime.dit_switch_policy = "auto"
+    runtime.current_task = None
+    runtime.current_partition = None
+    runtime.current_model_quantization = None
+    monkeypatch.setattr(runtime, "_stage_media", lambda path, label, index: "identity.png")
+    monkeypatch.setattr(runtime, "_history_output", lambda entry: raw)
+    monkeypatch.setattr(h3_runtime.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(h3_runtime, "encode_video", lambda *args: encoded)
+    linked_profiles = []
+    monkeypatch.setattr(
+        h3_runtime,
+        "ensure_model_profile",
+        lambda partition, quantization: linked_profiles.append((partition, quantization)),
+    )
+
+    def fake_json_request(path, payload=None, timeout=60):
+        if path == "/prompt":
+            graph = payload["prompt"]
+            assert graph["1"]["inputs"]["unet_name"] == "minimax_h3_ref2va_pruned_nvfp4.safetensors"
+            assert graph["2"]["inputs"]["clip_name"] == "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+            return {"prompt_id": "job-nvfp4"}
+        return {"job-nvfp4": {"status": {"completed": True}, "outputs": {}}}
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fake_json_request)
+    result = runtime.generate(
+        prompt="test",
+        task="ref2va",
+        reference_images=[tmp_path / "identity.png"],
+        size="native",
+        duration=4,
+        seed=42,
+        model_quantization="nvfp4",
+        return_metrics=True,
+    )
+    assert linked_profiles == [("ref2va", "nvfp4")]
+    assert result.metrics["model_quantization"] == "nvfp4"
+    assert result.metrics["width"] == 768
+    assert result.metrics["height"] == 1344
+
+
 def test_product_defaults_are_vertical_preview_mp4():
     defaults = inspect.signature(H3Runtime.generate).parameters
     assert defaults["task"].default is inspect.Parameter.empty
     assert defaults["steps"].default == 24
     assert defaults["attention_backend"].default == "sage-attention"
     assert defaults["inference_mode"].default == "quality"
+    assert defaults["model_quantization"].default == "int8"
     assert defaults["fused_modulation"].default is True
     assert defaults["aspect_ratio"].default == "9:16"
     assert defaults["size"].default == "preview"
@@ -216,6 +266,24 @@ def test_evict_policy_frees_only_on_partition_change(monkeypatch):
     assert calls == [("/free", {"unload_models": True, "free_memory": True})]
 
 
+def test_evict_policy_frees_on_quantization_change(monkeypatch):
+    runtime = object.__new__(H3Runtime)
+    runtime.dit_switch_policy = "evict"
+    runtime.current_task = "ref2va"
+    runtime.current_partition = "ref2va"
+    runtime.current_model_quantization = "int8"
+    calls = []
+
+    def fake_request(path, payload=None, timeout=60):
+        calls.append((path, payload))
+        return {}
+
+    monkeypatch.setattr(h3_runtime, "_json_request", fake_request)
+    runtime._prepare_generation("ref2va", "ref2va", "nvfp4")
+    assert calls == [("/free", {"unload_models": True, "free_memory": True})]
+    assert runtime.current_model_quantization == "nvfp4"
+
+
 def test_native_parallel_mode_rejects_retired_raylight_modes(monkeypatch):
     monkeypatch.delenv("H3_PARALLEL_MODE", raising=False)
     assert h3_runtime.select_parallel_mode("single") == "single"
@@ -329,7 +397,7 @@ def test_pdd_generation_routes_apply_sigmas_and_records_metrics(tmp_path, monkey
     assert result.metrics["steps"] == 8
     assert result.metrics["requested_steps"] == 24
     assert result.metrics["task"] == "ref2va"
-    assert result.metrics["schema_version"] == 2
+    assert result.metrics["schema_version"] == 3
     # The partition weight link happens inside the route lock, before /prompt.
     assert linked_partitions == ["ref2va"]
 

@@ -23,6 +23,8 @@ from h3_workflow import (
     INFERENCE_PDD,
     INFERENCE_QUALITY,
     INFERENCE_TURBO,
+    MODEL_QUANTIZATION_INT8,
+    MODEL_QUANTIZATION_NVFP4,
     infer_task,
     resolve_steps,
 )
@@ -90,6 +92,7 @@ def generate_video(
     duration: float,
     steps: int,
     inference_mode: str = INFERENCE_QUALITY,
+    model_quantization: str = MODEL_QUANTIZATION_INT8,
     attention_backend: str = ATTENTION_SAGE,
     fused_modulation: bool = True,
     seed: str | None = None,
@@ -124,6 +127,7 @@ def generate_video(
                 duration=float(duration),
                 steps=int(steps),
                 inference_mode=inference_mode,
+                model_quantization=model_quantization,
                 attention_backend=attention_backend,
                 fused_modulation=bool(fused_modulation),
                 seed=resolved_seed,
@@ -135,6 +139,7 @@ def generate_video(
             str(output),
             f"完成 · task={task} · backend={runtime.parallel_mode} · "
             f"inference={inference_mode} ({resolve_steps(task, steps, inference_mode)} steps) · "
+            f"quantization={model_quantization} · "
             f"attention={attention_backend} · "
             f"fused_modulation={'on' if fused_modulation else 'off'} · "
             f"seed={resolved_seed}",
@@ -206,6 +211,14 @@ def build_demo() -> gr.Blocks:
                         value=INFERENCE_QUALITY,
                         label="推理模式",
                     )
+                    model_quantization = gr.Dropdown(
+                        choices=[
+                            ("INT8 ConvRot（默认）", MODEL_QUANTIZATION_INT8),
+                            ("NVFP4（实验，仅 Blackwell 原生加速）", MODEL_QUANTIZATION_NVFP4),
+                        ],
+                        value=MODEL_QUANTIZATION_INT8,
+                        label="模型量化",
+                    )
                     attention_backend = gr.Dropdown(
                         choices=[
                             ("SageAttention（默认）", ATTENTION_SAGE),
@@ -253,6 +266,7 @@ def build_demo() -> gr.Blocks:
                 duration,
                 steps,
                 inference_mode,
+                model_quantization,
                 attention_backend,
                 fused_modulation,
                 seed,

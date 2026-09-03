@@ -7,7 +7,15 @@ import uuid
 from pathlib import Path
 
 from h3_tuning import CacheTuning
-from weights import video_vae_filename
+from weights import (
+    MODEL_QUANTIZATION_INT8,
+    MODEL_QUANTIZATION_NVFP4,
+    MODEL_QUANTIZATIONS,
+    diffusion_filename,
+    normalize_model_quantization,
+    text_encoder_filename,
+    video_vae_filename,
+)
 
 FPS = 24
 TASK_T2VA = "t2va"
@@ -59,9 +67,6 @@ TASK_PARTITIONS = {
     TASK_FL2VA: TASK_FL2VA,
     TASK_REF2VA: TASK_REF2VA,
 }
-FL2VA_MODEL = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
-REF2VA_MODEL = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
-TEXT_ENCODER = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
 AUDIO_VAE = "minimax_h3_audio_vae_fp32.safetensors"
 FL2VA_TURBO_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 REF2VA_TURBO_LORA = "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
@@ -141,6 +146,7 @@ def validate_inputs(
     fused_modulation: bool = True,
     attention_backend: str = ATTENTION_SAGE,
     inference_mode: str = INFERENCE_QUALITY,
+    model_quantization: str = MODEL_QUANTIZATION_INT8,
 ) -> None:
     normalized_task = normalize_task(task)
     inferred_task = infer_task(
@@ -174,6 +180,7 @@ def validate_inputs(
         raise ValueError("fused_modulation must be a boolean")
     normalize_attention_backend(attention_backend)
     normalize_inference_mode(inference_mode)
+    normalize_model_quantization(model_quantization)
 
 
 def _scaled_image(graph: dict[str, dict], node_id: str, name: str, width: int, height: int) -> tuple[str, dict]:
@@ -211,10 +218,12 @@ def build_workflow(
     fused_modulation: bool = True,
     attention_backend: str = ATTENTION_SAGE,
     inference_mode: str = INFERENCE_QUALITY,
+    model_quantization: str = MODEL_QUANTIZATION_INT8,
 ) -> dict[str, dict]:
     task = normalize_task(task)
     attention_backend = normalize_attention_backend(attention_backend)
     inference_mode = normalize_inference_mode(inference_mode)
+    model_quantization = normalize_model_quantization(model_quantization)
     reference_image_names = reference_image_names or []
     reference_video_names = reference_video_names or []
     reference_audio_names = reference_audio_names or []
@@ -229,6 +238,7 @@ def build_workflow(
         fused_modulation=fused_modulation,
         attention_backend=attention_backend,
         inference_mode=inference_mode,
+        model_quantization=model_quantization,
     )
 
     turbo = inference_mode == INFERENCE_TURBO
@@ -241,8 +251,9 @@ def build_workflow(
     effective_steps = resolve_steps(task, steps, inference_mode)
     sampler_name = "euler" if turbo or pdd else "res_multistep"
 
+    partition = task_partition(task)
+    model_name = diffusion_filename(model_quantization, partition)
     if task == TASK_REF2VA:
-        model_name = REF2VA_MODEL
         conditioning = {
             "class_type": "MiniMaxH3ReferenceToVideo",
             "inputs": {
@@ -257,7 +268,6 @@ def build_workflow(
             },
         }
     else:
-        model_name = FL2VA_MODEL
         conditioning = {
             "class_type": "MiniMaxH3ImageToVideo",
             "inputs": {
@@ -272,7 +282,14 @@ def build_workflow(
 
     graph: dict[str, dict] = {
         "1": {"class_type": "UNETLoader", "inputs": {"unet_name": model_name, "weight_dtype": "default"}},
-        "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": TEXT_ENCODER, "type": "minimax", "device": "default"}},
+        "2": {
+            "class_type": "CLIPLoader",
+            "inputs": {
+                "clip_name": text_encoder_filename(model_quantization),
+                "type": "minimax",
+                "device": "default",
+            },
+        },
         "3": {"class_type": "VAELoader", "inputs": {"vae_name": video_vae_filename()}},
         "4": {"class_type": "VAELoader", "inputs": {"vae_name": AUDIO_VAE}},
         "5": conditioning,

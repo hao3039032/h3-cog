@@ -41,6 +41,9 @@ does not permit it.
 - Opt-in official PDD 8-step Acc inference (`inference_mode=pdd`): T2VA/FL2VA
   uses the FL2VA Acc LoRA+head bank and REF2VA uses its Ref2VA counterpart,
   with Euler on the node's trained block-boundary sigmas.
+- Opt-in experimental NVFP4 model quantization (`model_quantization=nvfp4`):
+  swaps the partition-matched DiT and the text encoder for NVFP4 checkpoints,
+  targeting native FP4 acceleration on Blackwell GPUs such as RTX 5090.
 - default SageAttention with an opt-in per-request Sol-Attn residual INT8 QK
   path, plus PyTorch attention fallback and ComfyUI DynamicVRAM on every GPU size.
 - default-on, bit-exact H3 fused modulation for lower AdaLN and gated-residual
@@ -77,6 +80,7 @@ treating it as a quality-neutral default for production traffic.
 | `duration` | `5` | 4–15 seconds; snaps upward to H3's `17k+5` frame grid |
 | `steps` | `24` | 20 official; 12–16 preview; allowed 8–60 |
 | `inference_mode` | `quality` | `quality` uses `steps`; `turbo` uses FL2V 8-step or Ref2V 4-step; `pdd` is a fixed 8-step PDD Acc run |
+| `model_quantization` | `int8` | `int8` selects the default INT8 ConvRot DiT and text encoder; `nvfp4` is experimental and only meaningful on Blackwell-class GPUs |
 | `attention_backend` | `sage-attention` | `sage-attention` or experimental `sol-int8-qk` |
 | `fused_modulation` | `true` | Enables bit-exact H3 AdaLN and gated-residual Triton fusion |
 | `structured_prompt` | automatic | True for t2va/fl2va; false for native REF2VA prompts |
@@ -112,14 +116,32 @@ modulation and the optional Sol INT8-QK patch still stack after the Apply node.
 First release intentionally does not expose 4/6 NFE, custom partitions, or a
 PDD strength knob.
 
-The two PDD Acc files (1.37GB each, 2.56GiB total) are the only weights sourced
-from the official Hugging Face repo rather than ModelScope. They are optional:
-missing PDD files never block Quality/Turbo startup, but a PDD request fails
-with the exact missing path. Before the first PDD request the runtime also
+The two PDD Acc files (1.37GB each, 2.56GiB total) and the two NVFP4 DiTs are
+the only weights sourced from Hugging Face rather than ModelScope; only the
+PDD files come from the official MiniMax release. Both sets are optional:
+missing PDD or NVFP4 files never block Quality/Turbo/INT8 startup, but a PDD or
+NVFP4 request fails with the exact missing paths. Before the first PDD request
+the runtime also
 verifies via ComfyUI `object_info` that `MiniMaxH3PDDAccApply` and
 `MiniMaxH3SigmaShift` are available, so a node-less image fails fast instead of
 during sampling. PDD weights keep the MiniMax H3 Community License and the
 `MINIMAX_H3_LICENSE_ACCEPTED=1` gate.
+
+`model_quantization=nvfp4` is an experimental, request-level model swap. It
+replaces the partition DiT with `minimax_h3_{fl2va,ref2va}_pruned_nvfp4.safetensors`
+(12.53GB each) and the text encoder with the official
+`qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (15.69GB). The two NVFP4 DiTs
+are third-party single-pass conversions pinned to
+`lilcheaty/MiniMax-H3-NVFP4` at a fixed revision; unlike every other weight in
+this repository they are not published by MiniMax or Comfy-Org, so treat their
+outputs as unvalidated until your own same-seed INT8 comparison passes. NVFP4
+compute is natively accelerated only on Blackwell (SM120+) GPUs such as RTX
+5090 — on older cards ComfyUI falls back to dequantizing emulation, which is
+slower than INT8. The three NVFP4 files are optional: they never block INT8
+startup, and an NVFP4 request fails fast with the exact missing paths. Both
+quantization profiles can coexist in one `WEIGHTS_DIR`; swapping them rewrites
+the shared ComfyUI symlinks and switches the DiT cache route. NVFP4 stacks
+with `quality`, `turbo`, and `pdd` inference modes.
 
 On a 48GB L40S, ComfyUI's DynamicVRAM path measured about 7% faster than
 estimate-based loading on the same 480x864, 362-frame workload.
@@ -209,6 +231,9 @@ vae/minimax_h3_video_vae_fp32.safetensors
 vae/minimax_h3_audio_vae_fp32.safetensors
 pdd_acc/MiniMax-H3-FL2VA-Acc-8Step.safetensors      (optional, PDD mode)
 pdd_acc/MiniMax-H3-Ref2VA-Acc-8Step.safetensors     (optional, PDD mode)
+diffusion_models/minimax_h3_fl2va_pruned_nvfp4.safetensors   (optional, NVFP4)
+diffusion_models/minimax_h3_ref2va_pruned_nvfp4.safetensors  (optional, NVFP4)
+text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors   (optional, NVFP4)
 ```
 
 The FP32 video VAE is the deterministic Comfy-native repack published at
@@ -217,7 +242,9 @@ and appends the two `[24]` latent normalization buffers expected by ComfyUI;
 the runtime enables `--fp32-vae`. Set `H3_VIDEO_VAE_PRECISION=fp16` to fall
 back to the smaller conversion for capacity-constrained workers. All selected
 weights are pinned to ModelScope except the two PDD Acc files, which are pinned
-to the official `alibaba-pai/MiniMax-H3-Acc-LoRAs` Hugging Face release.
+to the official `alibaba-pai/MiniMax-H3-Acc-LoRAs` Hugging Face release, and
+the two NVFP4 DiTs, which are pinned to the third-party
+`lilcheaty/MiniMax-H3-NVFP4` conversion at a fixed commit.
 Provision them under
 `${WEIGHTS_DIR}/MiniMax-H3` before startup; the runtime links existing files
 into ComfyUI and consumes them as-is.
@@ -262,8 +289,8 @@ signed with `sign_tuning` from `h3_tuning.py`; the three named profiles are the
 recommended first pass. Never expose the secret in the app.nz client or public
 Cog schema.
 
-Each RunPod response includes schema-versioned metrics (schema v2, which added
-`inference_mode="pdd"`) for total generation and
+Each RunPod response includes schema-versioned metrics (schema v3, which added
+`model_quantization`) for total generation and
 encode time, dimensions, frame count, exact seed, output size and SHA-256, and
 the non-secret cache configuration. Compare every cache candidate with its
 same-seed `off` baseline. Promote a profile only after visual review of motion,
@@ -275,7 +302,8 @@ EasyCache speedup or quality claim is made before those GPU A/B results exist.
 Each pruned INT8 DiT is 20.97GB; the INT8 Qwen encoder is 27.14GB, visual VAE
 10.42GB, audio VAE 0.61GB, and the two Turbo LoRAs total 3.91GB. Both DiT
 partitions bring the selected set to about 84.02GB; enabling PDD adds
-2.56GiB for the two Acc files (1.37GB each). They cannot all remain
+2.56GiB for the two Acc files (1.37GB each), and enabling NVFP4 adds about
+40.74GB (two 12.53GB DiTs plus the 15.69GB AWQ encoder). They cannot all remain
 resident on a 24GB or 48GB card, so
 ComfyUI stages components between prompt encoding, denoising, and VAE decode.
 Use at least 96GB system RAM on DynamicVRAM workers and a persistent weight

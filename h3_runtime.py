@@ -25,6 +25,8 @@ from h3_workflow import (
     ATTENTION_SAGE,
     INFERENCE_PDD,
     INFERENCE_QUALITY,
+    MODEL_QUANTIZATION_INT8,
+    MODEL_QUANTIZATION_NVFP4,
     TASK_FL2VA,
     TASK_REF2VA,
     aligned_frames,
@@ -32,6 +34,7 @@ from h3_workflow import (
     dimensions,
     normalize_attention_backend,
     normalize_inference_mode,
+    normalize_model_quantization,
     normalize_task,
     resolve_steps,
     task_partition,
@@ -40,6 +43,7 @@ from h3_workflow import (
 from weights import (
     COMFY_ROOT,
     ensure_diffusion_weights,
+    ensure_model_profile,
     ensure_pdd_weight,
     ensure_weights,
     video_vae_precision,
@@ -232,6 +236,7 @@ class H3Runtime:
         self.dit_switch_policy = dit_switch_policy
         self.current_task: str | None = None
         self.current_partition: str | None = None
+        self.current_model_quantization: str | None = None
         self.process = self._start_comfy()
         print(
             f"H3 execution backend: mode=native/single visible_gpus={_gpu_count()} "
@@ -306,24 +311,44 @@ class H3Runtime:
                             return path
         raise RuntimeError("ComfyUI completed without a saved video")
 
-    def _prepare_generation(self, task: str, partition: str) -> None:
+    def _prepare_generation(
+        self,
+        task: str,
+        partition: str,
+        model_quantization: str = MODEL_QUANTIZATION_INT8,
+    ) -> None:
         previous_task = self.current_task
         previous_partition = self.current_partition
-        if task != previous_task or partition != previous_partition:
+        previous_quantization = getattr(self, "current_model_quantization", None)
+        route_changed = (
+            task != previous_task
+            or partition != previous_partition
+            or model_quantization != previous_quantization
+        )
+        if route_changed:
             print(
                 f"H3 task route: {previous_task or 'cold'}->{task} "
-                f"partition={previous_partition or 'cold'}->{partition}",
+                f"partition={previous_partition or 'cold'}->{partition} "
+                f"quantization={previous_quantization or 'cold'}->{model_quantization}",
                 flush=True,
             )
         if (
             previous_partition is not None
-            and partition != previous_partition
+            and (
+                partition != previous_partition
+                or model_quantization != previous_quantization
+            )
             and self.dit_switch_policy == "evict"
         ):
             _json_request("/free", {"unload_models": True, "free_memory": True})
-            print(f"ComfyUI model cache freed for partition switch to {partition}", flush=True)
+            print(
+                "ComfyUI model cache freed for route switch to "
+                f"partition={partition} quantization={model_quantization}",
+                flush=True,
+            )
         self.current_task = task
         self.current_partition = partition
+        self.current_model_quantization = model_quantization
 
     def generate(
         self,
@@ -349,12 +374,14 @@ class H3Runtime:
         fused_modulation: bool = True,
         attention_backend: str = ATTENTION_SAGE,
         inference_mode: str = INFERENCE_QUALITY,
+        model_quantization: str = MODEL_QUANTIZATION_INT8,
         return_metrics: bool = False,
     ) -> Path | GenerationResult:
         total_started = time.monotonic()
         task = normalize_task(task)
         attention_backend = normalize_attention_backend(attention_backend)
         inference_mode = normalize_inference_mode(inference_mode)
+        model_quantization = normalize_model_quantization(model_quantization)
         effective_steps = resolve_steps(task, steps, inference_mode)
         partition = task_partition(task)
         command = _comfy_command()
@@ -365,6 +392,7 @@ class H3Runtime:
             f"dynamic_vram={'on' if '--highvram' not in command else 'off'} "
             f"attention_backend={attention_backend} "
             f"inference_mode={inference_mode} "
+            f"model_quantization={model_quantization} "
             f"video_vae={video_vae_precision()} "
             f"fp32_matmul={_fp32_matmul_precision()} "
             f"reserve_vram_gb={command[command.index('--reserve-vram') + 1]}",
@@ -385,6 +413,7 @@ class H3Runtime:
             fused_modulation=fused_modulation,
             attention_backend=attention_backend,
             inference_mode=inference_mode,
+            model_quantization=model_quantization,
         )
         if len(reference_images) > 9 or len(reference_videos) > 3 or len(reference_audios) > 3:
             raise ValueError("ref2va supports at most 9 images, 3 videos, and 3 audio clips")
@@ -448,9 +477,14 @@ class H3Runtime:
                 fused_modulation=fused_modulation,
                 attention_backend=attention_backend,
                 inference_mode=inference_mode,
+                model_quantization=model_quantization,
             )
             with _ROUTE_LOCK:
-                self._prepare_generation(task, partition)
+                self._prepare_generation(task, partition, model_quantization)
+                if model_quantization == MODEL_QUANTIZATION_NVFP4:
+                    # Symlink swaps for the shared text encoder / DiT are not
+                    # atomic; serialize them against concurrent generations.
+                    ensure_model_profile(partition, model_quantization)
                 if inference_mode == INFERENCE_PDD:
                     # Symlink creation is not atomic; serialize it against
                     # concurrent generations under the same route lock.
@@ -492,14 +526,15 @@ class H3Runtime:
                         f"cache={cache.profile if cache is not None else 'off'} "
                         f"attention_backend={attention_backend} "
                         f"inference_mode={inference_mode} "
+                        f"model_quantization={model_quantization} "
                         f"fused_modulation={'on' if fused_modulation else 'off'}",
                         flush=True,
                     )
                     if not return_metrics:
                         return output
                     metrics = {
-                        # v2: inference_mode gained the "pdd" value.
-                        "schema_version": 2,
+                        # v3: model_quantization records INT8 vs NVFP4 routing.
+                        "schema_version": 3,
                         "task": task,
                         "partition": partition,
                         "dit_switch_policy": self.dit_switch_policy,
@@ -518,6 +553,7 @@ class H3Runtime:
                         "cache": cache.public_dict() if cache is not None else {"profile": "off"},
                         "attention_backend": attention_backend,
                         "inference_mode": inference_mode,
+                        "model_quantization": model_quantization,
                         "fused_modulation": fused_modulation,
                     }
                     return GenerationResult(output, metrics)

@@ -49,6 +49,19 @@ roughly 91GB of storage when enabling PDD. On a 32GB RTX 5090, PDD at
 `preview` with SageAttention plus fused modulation is the recommended setting;
 Sol INT8-QK remains an opt-in combination to A/B test separately.
 
+NVFP4 quantization (`model_quantization=nvfp4`) additionally needs three
+optional files (about 40.74GB): the two
+`diffusion_models/minimax_h3_*_pruned_nvfp4.safetensors` DiTs (12.53GB each,
+pinned to the third-party `lilcheaty/MiniMax-H3-NVFP4` conversion) and
+`text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` (15.69GB,
+official Comfy-Org release). They are also checked lazily per request and never
+block the INT8 default path. This path exists for Blackwell GPUs — a 32GB RTX
+5090 running NVFP4 at `native` 768p is the intended experiment; on pre-Blackwell
+cards ComfyUI dequantizes NVFP4 to emulate, which is slower than INT8 and only
+useful for functional checks. Note that with a 12.53GB DiT plus the 15.69GB
+encoder, a 768p NVFP4 run on 32GB still uses DynamicVRAM staging for the FP32
+video VAE decode.
+
 Set `H3_VIDEO_VAE_PRECISION=fp16` to use the 5.21GB visual VAE instead. This
 is useful on storage-constrained workers, but it intentionally gives up the
 official FP32 decode path.

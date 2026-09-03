@@ -35,7 +35,7 @@ def test_fl2va_weight_metadata_matches_verified_source():
     assert entry["url"].endswith("/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors")
 
 
-def test_weight_sources_are_pinned_with_pdd_as_the_only_hf_exception():
+def test_weight_sources_are_pinned_with_explicit_hf_exceptions():
     assert set(weights.FILES) == {
         "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
         "vae/minimax_h3_video_vae_fp16.safetensors",
@@ -47,13 +47,32 @@ def test_weight_sources_are_pinned_with_pdd_as_the_only_hf_exception():
     assert entry["size"] == 27_141_342_152
     assert entry["sha256"] == "bc2ced0fbea64757fa9acddccfc0b3f4819d1dcf1da6c124d690d368be283923"
     assert entry["url"] == "https://modelscope.cn/models/Comfy-Org/MiniMax-H3/resolve/master/text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
-    hf_sourced = set(weights.PDD_ACC_RELATIVES)
+    hf_sourced = set(weights.PDD_ACC_RELATIVES) | set(weights.NVFP4_DIFFUSION_RELATIVES)
     for relative, entry in weights.VERIFIED_WEIGHTS.items():
-        if relative in hf_sourced:
+        if relative in weights.PDD_ACC_RELATIVES:
             assert entry["url"].startswith("https://huggingface.co/alibaba-pai/MiniMax-H3-Acc-LoRAs/resolve/main/")
+        elif relative in weights.NVFP4_DIFFUSION_RELATIVES:
+            assert entry["url"].startswith(weights.NVFP4_DIT_SOURCE_BASE + "/")
         else:
             assert entry["url"].startswith("https://modelscope.cn/models/")
-    assert "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" not in weights.VERIFIED_WEIGHTS
+    assert hf_sourced.isdisjoint(set(weights.FILES))
+    assert weights.NVFP4_TEXT_ENCODER_RELATIVE not in weights.FILES
+
+
+def test_nvfp4_metadata_matches_pinned_single_pass_release():
+    text = weights.VERIFIED_WEIGHTS[weights.NVFP4_TEXT_ENCODER_RELATIVE]
+    fl2va = weights.VERIFIED_WEIGHTS[weights.FL2VA_NVFP4_RELATIVE]
+    ref2va = weights.VERIFIED_WEIGHTS[weights.REF2VA_NVFP4_RELATIVE]
+    assert text == {
+        "size": 15_687_142_551,
+        "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
+        "url": f"{weights.SOURCE_BASE}/{weights.NVFP4_TEXT_ENCODER_RELATIVE}",
+    }
+    assert fl2va["size"] == ref2va["size"] == 12_528_636_800
+    assert fl2va["sha256"] == "72fa9269ce551fb63ff42a32d9b46d0c122e84b4b2c511e22fa698287b088f70"
+    assert ref2va["sha256"] == "c813c5eabd85e275daccbf45e6f8ac4d9d14a1827d425e5be5070c92c60b78ac"
+    assert weights.NVFP4_DIT_REVISION in fl2va["url"]
+    assert weights.NVFP4_DIT_REVISION in ref2va["url"]
 
 
 def test_fp32_video_vae_uses_repackaged_modelscope_source_by_default(monkeypatch):
@@ -132,6 +151,40 @@ def test_both_diffusion_weights_are_linked_for_task_routing(monkeypatch, tmp_pat
     for relative in weights.DIFFUSION_RELATIVES:
         target = tmp_path / "comfy" / "models" / "diffusion_models" / Path(relative).name
         assert target.resolve() == installed[relative].resolve()
+
+
+def test_nvfp4_profile_is_linked_lazily_for_one_partition(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+    relatives = weights.model_profile_relatives("nvfp4", "ref2va")
+    for relative in relatives:
+        destination = tmp_path / "MiniMax-H3" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"nvfp4-data")
+
+    installed = weights.ensure_model_profile("ref2va", "nvfp4")
+    assert set(installed) == set(relatives)
+    assert weights.FL2VA_NVFP4_RELATIVE not in installed
+    for relative, folder in zip(relatives, ("text_encoders", "diffusion_models")):
+        target = tmp_path / "comfy" / "models" / folder / Path(relative).name
+        assert target.resolve() == installed[relative].resolve()
+
+
+def test_missing_nvfp4_profile_does_not_block_int8_startup(monkeypatch, tmp_path):
+    monkeypatch.setenv("MINIMAX_H3_LICENSE_ACCEPTED", "1")
+    monkeypatch.setenv("WEIGHTS_DIR", str(tmp_path))
+    monkeypatch.setattr(weights, "COMFY_ROOT", tmp_path / "comfy")
+    for relative, folder in weights._selected_files().items():
+        destination = tmp_path / "MiniMax-H3" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"int8-data")
+
+    weights.ensure_weights()
+    with pytest.raises(FileNotFoundError, match="model_quantization=nvfp4") as error:
+        weights.ensure_model_profile("fl2va", "nvfp4")
+    assert weights.NVFP4_TEXT_ENCODER_RELATIVE in str(error.value)
+    assert weights.FL2VA_NVFP4_RELATIVE in str(error.value)
 
 
 def test_pdd_acc_metadata_matches_official_huggingface_release():
